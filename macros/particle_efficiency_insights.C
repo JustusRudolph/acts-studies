@@ -9,7 +9,9 @@
 
 void particle_efficiency_insights(const std::string input_data_type="default_seeds_1T_geo_oct25",
                                   const std::string particle="muon",
-                                  const unsigned pT_mev=100000) {
+                                  const unsigned pT_mev=1000,
+                                  const float max_eta_abs=4,
+                                  const bool old_pid_scheme=false) {
 
   // Set ROOT style
   gStyle->SetOptStat(0);
@@ -18,18 +20,28 @@ void particle_efficiency_insights(const std::string input_data_type="default_see
   TString pT_label = pT_mev < 1000 ? Form("%d MeV/c", pT_mev) : Form("%d GeV/c", pT_mev / 1000);
 
   TString path_prefix = input_data_type;
-  TString output_prefix = input_data_type;
+  TString output_prefix = TString( Form("eta_%.1f_", max_eta_abs) ) + TString(input_data_type);
   if (particle.length()) {  // string is not empty
     path_prefix += Form("/%s/%s", particle.c_str(), pT_str.Data());
-    output_prefix = Form("%s_%s", particle.c_str(), pT_str.Data()) + output_prefix;
+    output_prefix = Form("%s_%s_", particle.c_str(), pT_str.Data()) + output_prefix;
   }
 
   // load data
   TFile* perf_file = TFile::Open(Form("data/%s/performance_finding_ambi.root", path_prefix.Data()));
   // TFile* sim_file = TFile::Open(Form("data/%s/particles_simulation.root", path_prefix.Data()));
 
+  if (!perf_file || perf_file->IsZombie()) {
+    std::cout << "Warning: Could not open performance file for path_prefix " << path_prefix.Data() << std::endl;
+    return;
+  }
+
   TTree* perf_tree = (TTree*) perf_file->Get("matchingdetails");
   // TTree* sim_tree = (TTree*) sim_file->Get("particles");
+
+  if (!perf_tree) {
+    std::cout << "Warning: Could not find matchingdetails tree in performance file." << std::endl;
+    return;
+  }
 
   printf("Loaded performance file %s with %lld entries\n", 
          perf_file->GetName(), perf_tree->GetEntries());
@@ -42,26 +54,17 @@ void particle_efficiency_insights(const std::string input_data_type="default_see
   std::vector<float>* eta = nullptr;
   std::vector<int>* nHits = nullptr;
 
+  std::string pid_branch_name = old_pid_scheme ? "particle_id" : "particle_id_particle";
   perf_tree->SetBranchAddress("event_nr", &evNo);
-  perf_tree->SetBranchAddress("particle_id", &pid_perf);
+  perf_tree->SetBranchAddress(pid_branch_name.c_str(), &pid_perf);
   perf_tree->SetBranchAddress("matched", &wasMatched);
   // perf_tree->SetBranchAddress("matchedTrackIdxs", &matchedTrackIdxs);
   perf_tree->SetBranchAddress("eta", &eta);
   perf_tree->SetBranchAddress("nHits", &nHits);
 
   // create eta range based on max and min eta values in the data
-  float eta_min = 999;
-  float eta_max = -999;
-  for (int i = 0; i < perf_tree->GetEntries(); i++) {
-    perf_tree->GetEntry(i);
-    for (const float mcp_eta : *eta) {
-      if (mcp_eta < eta_min) eta_min = mcp_eta;
-      if (mcp_eta > eta_max) eta_max = mcp_eta;
-    }
-  }
-  // increase range a little for plots
-  eta_min *= 1.1;
-  eta_max *= 1.1;
+  float eta_min = -max_eta_abs;
+  float eta_max = max_eta_abs;
 
   // create profiles: nHits wrt eta for matched & unmatched
   TProfile* prof_nHits_matched =
@@ -145,6 +148,9 @@ void particle_efficiency_insights(const std::string input_data_type="default_see
     unsigned nParticles = pid_perf->size();
     // printf("Have %u particles in this event. Go through.\n", nParticles);
     for (unsigned i_part = 0; i_part < nParticles; i_part++) {
+      if (eta->at(i_part) < -max_eta_abs || eta->at(i_part) > max_eta_abs)
+        continue;  // skip particles outside eta range
+
       if (wasMatched->at(i_part)) {
         prof_nHits_matched->Fill(eta->at(i_part), nHits->at(i_part));
         // prof_nDuplicates->Fill(eta->at(i_part), matchedTrackIdxs->at(i_part).size() - 1);
