@@ -1,5 +1,4 @@
 */data/
 */hists/
 */figures/
-pgun_studies/.vscode/
-pythia_studies/.vscode/
+*.vscode/
