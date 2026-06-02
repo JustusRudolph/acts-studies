@@ -7,9 +7,9 @@
 #include <TLegend.h>
 #include <TString.h>
 
-#include "../utils/cuts.C"
+#include "../utils/cuts.C"  // includes Constants.C
 
-void phi_dep_eff(const std::string phi_eff_input_data_type,
+void phi_dep_eff(const std::vector<TString>& phi_eff_input_data_types,
                  TEfficiency* eff_wrt_phi_near_central,
                  TEfficiency* eff_wrt_phi_complete_central) {
   auto near_central_eta_acceptance_phi_eff = [](float eta) {
@@ -18,44 +18,50 @@ void phi_dep_eff(const std::string phi_eff_input_data_type,
   auto complete_central_eta_acceptance_phi_eff = [](float eta) {
     return (std::abs(eta) < 1e-4);
   };
-  TString phi_eff_path = Form("data/%s/performance_finding_ambi.root",
-                              phi_eff_input_data_type.c_str());
+  for (const auto& phi_eff_input_data_type : phi_eff_input_data_types) {
+    TString phi_eff_path = Form("/%s/performance_finding_ambi.root",
+                                phi_eff_input_data_type.c_str());
 
-  TFile* phi_eff_file = TFile::Open(phi_eff_path);
-  if (!phi_eff_file || phi_eff_file->IsZombie()) {
-    std::cout << "Warning: Could not open " << phi_eff_path << std::endl;
-  }
-
-  TTree* phi_eff_mctree = (TTree*)phi_eff_file->Get("matchingdetails");
-  std::vector<bool>* matched_phi = nullptr;
-  std::vector<float>* phi = nullptr;
-  std::vector<float>* eta_phi = nullptr;
-  phi_eff_mctree->SetBranchAddress("matched", &matched_phi);
-  phi_eff_mctree->SetBranchAddress("phi", &phi);
-  phi_eff_mctree->SetBranchAddress("eta", &eta_phi);
-
-  for (unsigned i_ev = 0; i_ev < phi_eff_mctree->GetEntries(); i_ev++) {
-    phi_eff_mctree->GetEntry(i_ev);
-    for (size_t i_mcp = 0; i_mcp < matched_phi->size(); i_mcp++) {
-      if (near_central_eta_acceptance_phi_eff(eta_phi->at(i_mcp))) {
-        eff_wrt_phi_near_central->Fill(matched_phi->at(i_mcp), phi->at(i_mcp));
-      }
-      if (complete_central_eta_acceptance_phi_eff(eta_phi->at(i_mcp))) {
-        eff_wrt_phi_complete_central->Fill(matched_phi->at(i_mcp), phi->at(i_mcp));
-      }
+    TFile* phi_eff_file = TFile::Open(phi_eff_path);
+    if (!phi_eff_file || phi_eff_file->IsZombie()) {
+      std::cout << "Warning: Could not open " << phi_eff_path << std::endl;
+      continue;
     }
-  }
+
+    TTree* phi_eff_mctree = (TTree*)phi_eff_file->Get("matchingdetails");
+    std::vector<bool>* matched_phi = nullptr;
+    std::vector<float>* phi = nullptr;
+    std::vector<float>* eta_phi = nullptr;
+    phi_eff_mctree->SetBranchAddress("matched", &matched_phi);
+    phi_eff_mctree->SetBranchAddress("phi", &phi);
+    phi_eff_mctree->SetBranchAddress("eta", &eta_phi);
+
+    for (unsigned i_ev = 0; i_ev < phi_eff_mctree->GetEntries(); i_ev++) {
+      phi_eff_mctree->GetEntry(i_ev);
+      for (size_t i_mcp = 0; i_mcp < matched_phi->size(); i_mcp++) {
+        if (near_central_eta_acceptance_phi_eff(eta_phi->at(i_mcp))) {
+          eff_wrt_phi_near_central->Fill(matched_phi->at(i_mcp), phi->at(i_mcp));
+        }
+        if (complete_central_eta_acceptance_phi_eff(eta_phi->at(i_mcp))) {
+          eff_wrt_phi_complete_central->Fill(matched_phi->at(i_mcp), phi->at(i_mcp));
+        }
+      }  // loop over mc particles in event
+    }  // loop over entries (events) in file
+    phi_eff_file->Close();
+  }  // loop over files
 }
 
-void alice3_reproduce(const std::string input_data_type="default_seeds_2T_geo_oct25",
-                      const std::string phi_eff_input_data_type="",
+void alice3_reproduce(const bool onSTBC=false,
+                      const std::vector<TString> input_dirs={"50k_pythia_1"},
+                      const std::vector<TString> phi_eff_input_dirs={},
                       const float abs_eta_max = 1.0,
                       const float pT_fraction_kept = 0.8,
                       const bool include_muons=false) {
   
   // Set ROOT style
   gStyle->SetOptStat(0);
-  
+  // need base of where ACTSO2 output is stored to access the input files
+  const TString actso2_base = Constants::getACTSO2Base(onSTBC);
   // Define particle types and pTs
   std::vector<TString> particles = {"electron", "piplus", "proton", "kaonplus"};
   std::vector<TString> particle_labels = {"e^{-}", "#pi^{+}", "p^{+}", "K^{+}"};
@@ -98,111 +104,114 @@ void alice3_reproduce(const std::string input_data_type="default_seeds_2T_geo_oc
                                                         pT_bin_edges_gev.size() - 1, pT_bin_edges_gev.data());
   }
 
-  TString dir_name = Form("data/%s", input_data_type.c_str());
-  TString perf_ambi_filename = dir_name + "/performance_finding_ambi.root";
-  TString perf_seed_filename = dir_name + "/performance_seeding.root";
-  TFile* perf_ambi_file = TFile::Open(perf_ambi_filename);
-  TFile* perf_seed_file = TFile::Open(perf_seed_filename);
-  if (!perf_ambi_file || perf_ambi_file->IsZombie()) {
-    std::cout << "Warning: Could not open " << perf_ambi_filename << std::endl;
-    return;
-  }
-  if (!perf_seed_file || perf_seed_file->IsZombie()) {
-    std::cout << "Warning: Could not open " << perf_seed_filename << std::endl;
-    return;
-  }
-
-  TTree* ambi_mc_tree = (TTree*)perf_ambi_file->Get("matchingdetails");
-  TTree* seed_mc_tree = (TTree*)perf_seed_file->Get("matchingdetails");
-
-  std::vector<bool>* matched = nullptr;
-  std::vector<bool>* isSecondary = nullptr;
-  std::vector<float>* eta = nullptr;
-  std::vector<int>* pdg = nullptr;
-  std::vector<float>* pT_initial = nullptr;
-  std::vector<float>* pT_final = nullptr;
-  std::vector<float>* p_initial = nullptr;
-  std::vector<float>* p_final = nullptr;
-  // std::vector<float>* phi = nullptr;
-
-  std::vector<bool>* matched_seed = nullptr;
-  std::vector<bool>* isSecondary_seed = nullptr;
-  std::vector<float>* eta_seed = nullptr;
-  std::vector<int>* pdg_seed = nullptr;
-  std::vector<float>* pT_initial_seed = nullptr;
-  std::vector<float>* pT_final_seed = nullptr;
-  std::vector<float>* p_initial_seed = nullptr;
-  std::vector<float>* p_final_seed = nullptr;
-
-  ambi_mc_tree->SetBranchAddress("matched", &matched);
-  ambi_mc_tree->SetBranchAddress("isSecondary", &isSecondary);
-  ambi_mc_tree->SetBranchAddress("eta", &eta);
-  ambi_mc_tree->SetBranchAddress("pdg", &pdg);
-  ambi_mc_tree->SetBranchAddress("pT_final", &pT_final);
-  ambi_mc_tree->SetBranchAddress("p_final", &p_final);
-  ambi_mc_tree->SetBranchAddress("pT_initial", &pT_initial);
-  ambi_mc_tree->SetBranchAddress("p_initial", &p_initial);
-  // ambi_mc_tree->SetBranchAddress("phi", &phi);
-
-  if (seed_mc_tree != nullptr) {
-    seed_mc_tree->SetBranchAddress("matched", &matched_seed);
-    seed_mc_tree->SetBranchAddress("isSecondary", &isSecondary_seed);
-    seed_mc_tree->SetBranchAddress("eta", &eta_seed);
-    seed_mc_tree->SetBranchAddress("pdg", &pdg_seed);
-    seed_mc_tree->SetBranchAddress("pT_final", &pT_final_seed);
-    seed_mc_tree->SetBranchAddress("p_final", &p_final_seed);
-    seed_mc_tree->SetBranchAddress("pT_initial", &pT_initial_seed);
-    seed_mc_tree->SetBranchAddress("p_initial", &p_initial_seed);
-  }
-
-  for (unsigned i_ev = 0; i_ev < ambi_mc_tree->GetEntries(); i_ev++) {
-    ambi_mc_tree->GetEntry(i_ev);
-    for (size_t i_mcp = 0; i_mcp < matched->size(); i_mcp++) {
-      if (std::find(pdg_codes.begin(),
-                    pdg_codes.end(),
-                    pdg->at(i_mcp)) == pdg_codes.end())
-        continue;  // particle type not in our list, skip
-
-      unsigned i_part = pdg_to_index[pdg->at(i_mcp)];
-      if (std::abs(eta->at(i_mcp)) < abs_eta_max
-          && !isSecondary->at(i_mcp)
-          && pT_final->at(i_mcp) > pT_fraction_kept * pT_initial->at(i_mcp)) {
-        // TODO: UNCOMMENT THIS WHEN YOU HAVE PHI OUTPUT IN MATCHINGDETAILS
-        // ALSO NOT RELEVANT FOR GEANT4 GEOMETRY (PERFECT CYLINDER)
-        // if (Cuts::petalcut_phi(phi->at(i_mcp)))
-        //   continue;  // if at petal, skip
-        eff_hists_central[i_part]->Fill(matched->at(i_mcp), pT_initial->at(i_mcp));
-      }
+  for (const TString& input_dir : input_dirs) {
+    TString dir_name = Form("%s/%s", actso2_base.Data(), input_dir.Data());
+    TString perf_ambi_filename = dir_name + "/performance_finding_ambi.root";
+    TString perf_seed_filename = dir_name + "/performance_seeding.root";
+    TFile* perf_ambi_file = TFile::Open(perf_ambi_filename);
+    TFile* perf_seed_file = TFile::Open(perf_seed_filename);
+    if (!perf_ambi_file || perf_ambi_file->IsZombie()) {
+      std::cout << "Warning: Could not open " << perf_ambi_filename << std::endl;
+      continue;
     }
-  }  // loop over ambi tree entries
+    if (!perf_seed_file || perf_seed_file->IsZombie()) {
+      std::cout << "Warning: Could not open " << perf_seed_filename << std::endl;
+      continue;
+    }
 
-  if (seed_mc_tree != nullptr) {
-    // seeding efficiency available
+    TTree* ambi_mc_tree = (TTree*)perf_ambi_file->Get("matchingdetails");
+    TTree* seed_mc_tree = (TTree*)perf_seed_file->Get("matchingdetails");
 
-    for (unsigned i_ev = 0; i_ev < seed_mc_tree->GetEntries(); i_ev++) {
-      seed_mc_tree->GetEntry(i_ev);
-      for (size_t i_mcp = 0; i_mcp < matched_seed->size(); i_mcp++) {
+    std::vector<bool>* matched = nullptr;
+    std::vector<bool>* isSecondary = nullptr;
+    std::vector<float>* eta = nullptr;
+    std::vector<int>* pdg = nullptr;
+    std::vector<float>* pT_initial = nullptr;
+    std::vector<float>* pT_final = nullptr;
+    std::vector<float>* p_initial = nullptr;
+    std::vector<float>* p_final = nullptr;
+    // std::vector<float>* phi = nullptr;
+
+    std::vector<bool>* matched_seed = nullptr;
+    std::vector<bool>* isSecondary_seed = nullptr;
+    std::vector<float>* eta_seed = nullptr;
+    std::vector<int>* pdg_seed = nullptr;
+    std::vector<float>* pT_initial_seed = nullptr;
+    std::vector<float>* pT_final_seed = nullptr;
+    std::vector<float>* p_initial_seed = nullptr;
+    std::vector<float>* p_final_seed = nullptr;
+
+    ambi_mc_tree->SetBranchAddress("matched", &matched);
+    ambi_mc_tree->SetBranchAddress("isSecondary", &isSecondary);
+    ambi_mc_tree->SetBranchAddress("eta", &eta);
+    ambi_mc_tree->SetBranchAddress("pdg", &pdg);
+    ambi_mc_tree->SetBranchAddress("pT_final", &pT_final);
+    ambi_mc_tree->SetBranchAddress("p_final", &p_final);
+    ambi_mc_tree->SetBranchAddress("pT_initial", &pT_initial);
+    ambi_mc_tree->SetBranchAddress("p_initial", &p_initial);
+    // ambi_mc_tree->SetBranchAddress("phi", &phi);
+
+    if (seed_mc_tree != nullptr) {
+      seed_mc_tree->SetBranchAddress("matched", &matched_seed);
+      seed_mc_tree->SetBranchAddress("isSecondary", &isSecondary_seed);
+      seed_mc_tree->SetBranchAddress("eta", &eta_seed);
+      seed_mc_tree->SetBranchAddress("pdg", &pdg_seed);
+      seed_mc_tree->SetBranchAddress("pT_final", &pT_final_seed);
+      seed_mc_tree->SetBranchAddress("p_final", &p_final_seed);
+      seed_mc_tree->SetBranchAddress("pT_initial", &pT_initial_seed);
+      seed_mc_tree->SetBranchAddress("p_initial", &p_initial_seed);
+    }
+
+    for (unsigned i_ev = 0; i_ev < ambi_mc_tree->GetEntries(); i_ev++) {
+      ambi_mc_tree->GetEntry(i_ev);
+      for (size_t i_mcp = 0; i_mcp < matched->size(); i_mcp++) {
         if (std::find(pdg_codes.begin(),
                       pdg_codes.end(),
-                      pdg_seed->at(i_mcp)) == pdg_codes.end())
+                      pdg->at(i_mcp)) == pdg_codes.end())
           continue;  // particle type not in our list, skip
-        unsigned i_part = pdg_to_index[pdg_seed->at(i_mcp)];
-        if (std::abs(eta_seed->at(i_mcp)) < abs_eta_max
-            && !isSecondary_seed->at(i_mcp)
-            && pT_final_seed->at(i_mcp) > pT_fraction_kept * pT_initial_seed->at(i_mcp)) {
-          eff_seeding_hists_central[i_part]->Fill(matched_seed->at(i_mcp), pT_initial_seed->at(i_mcp));
+
+        unsigned i_part = pdg_to_index[pdg->at(i_mcp)];
+        if (std::abs(eta->at(i_mcp)) < abs_eta_max
+            && !isSecondary->at(i_mcp)
+            && pT_final->at(i_mcp) > pT_fraction_kept * pT_initial->at(i_mcp)) {
+          // TODO: UNCOMMENT THIS WHEN YOU HAVE PHI OUTPUT IN MATCHINGDETAILS
+          // ALSO NOT RELEVANT FOR GEANT4 GEOMETRY (PERFECT CYLINDER)
+          // if (Cuts::petalcut_phi(phi->at(i_mcp)))
+          //   continue;  // if at petal, skip
+          eff_hists_central[i_part]->Fill(matched->at(i_mcp), pT_initial->at(i_mcp));
         }
       }
-    }  // loop over seeding tree entries
-  }  // if seeding tree exists
+    }  // loop over ambi tree entries
+
+    if (seed_mc_tree != nullptr) {
+      // seeding efficiency available
+      for (unsigned i_ev = 0; i_ev < seed_mc_tree->GetEntries(); i_ev++) {
+        seed_mc_tree->GetEntry(i_ev);
+        for (size_t i_mcp = 0; i_mcp < matched_seed->size(); i_mcp++) {
+          if (std::find(pdg_codes.begin(),
+                        pdg_codes.end(),
+                        pdg_seed->at(i_mcp)) == pdg_codes.end())
+            continue;  // particle type not in our list, skip
+          unsigned i_part = pdg_to_index[pdg_seed->at(i_mcp)];
+          if (std::abs(eta_seed->at(i_mcp)) < abs_eta_max
+              && !isSecondary_seed->at(i_mcp)
+              && pT_final_seed->at(i_mcp) > pT_fraction_kept * pT_initial_seed->at(i_mcp)) {
+            eff_seeding_hists_central[i_part]->Fill(matched_seed->at(i_mcp), pT_initial_seed->at(i_mcp));
+          }
+        }
+      }  // loop over seeding tree entries
+      perf_seed_file->Close();
+    }  // if seeding tree exists
+    perf_ambi_file->Close();
+  }  // loop over input files
 
   // ------------------- Now get efficiency vs phi for central eta -------------------
   TEfficiency* eff_wrt_phi_near_central = new TEfficiency("eff_wrt_phi_near_central", "Efficiency vs #phi;#phi;Efficiency",
                                              100, -3.14, 3.14);
   TEfficiency* eff_wrt_phi_complete_central = new TEfficiency("eff_wrt_phi_complete_central", "Efficiency vs #phi;#phi;Efficiency",
                                              100, -3.14, 3.14);
-  if (phi_eff_input_data_type != "") {
-    phi_dep_eff(phi_eff_input_data_type, eff_wrt_phi_near_central, eff_wrt_phi_complete_central);
+  if (phi_eff_input_dirs.size() > 0) {
+    phi_dep_eff(phi_eff_input_dirs, eff_wrt_phi_near_central, eff_wrt_phi_complete_central);
   } else {
     std::cout << "No phi efficiency input data type provided, skipping phi efficiency plot." << std::endl;
   }
