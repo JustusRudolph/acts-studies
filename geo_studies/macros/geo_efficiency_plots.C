@@ -9,37 +9,17 @@
 #include <TString.h>
 #include <TMath.h>
 #include <iostream>
+#include <vector>
 
 void geo_efficiency_plots(
-  const TString pathToFilesFromOutput = "geo_staves_pi_1GeV_eta14-20",
+  const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const unsigned nMinHits=3,
   const bool useFullEtaRange=false)
 {
   const TString base    = "/home/justus/projects/alice/ACTSO2/output/";
   const TString geo_studies_base = "/home/justus/projects/alice/acts-studies/geo_studies/";
-  const TString inFile  = base + pathToFilesFromOutput + "/particles_simulation_matched.root";
   const TString rootOutFile = geo_studies_base + "histos/efficiencies/geo_efficiency_plots.root";
   const TString pdfOutFile = geo_studies_base + "figures/efficiencies/";
-
-  TFile* fIn = TFile::Open(inFile);
-  if (!fIn || fIn->IsZombie()) { std::cerr << "Cannot open " << inFile << std::endl; return; }
-
-  TTree* t = (TTree*)fIn->Get("particles");
-  if (!t) { std::cerr << "particles tree not found" << std::endl; return; }
-
-  std::vector<float>* eta = nullptr;
-  std::vector<float>* phi = nullptr;
-  std::vector<float>* pt = nullptr;
-  std::vector<int>* nhits = nullptr;
-  std::vector<unsigned>* generation = nullptr;
-  std::vector<std::vector<unsigned int>>* matchedIdxs = nullptr;
-
-  t->SetBranchAddress("eta",                &eta);
-  t->SetBranchAddress("phi",                &phi);
-  t->SetBranchAddress("pt",                 &pt);
-  t->SetBranchAddress("number_of_hits",     &nhits);
-  t->SetBranchAddress("generation",         &generation);
-  t->SetBranchAddress("matched_track_idxs", &matchedIdxs);
 
   double etaMin = useFullEtaRange ? -2.5 : 1.4;
   double etaMax = useFullEtaRange ? 2.5 : 2.0;
@@ -60,28 +40,49 @@ void geo_efficiency_plots(
   auto* effEtaPt = new TEfficiency("effEtaPt", ";#eta;p_{T} (GeV/c);Efficiency",
                                    100, etaMin, etaMax, 100, 0.5, 5.0);
 
-  // --- Event loop ---
-  Long64_t nEntries = t->GetEntries();
-  for (Long64_t i = 0; i < nEntries; i++) {
-    t->GetEntry(i);
+  // --- Event loop over all input files ---
+  for (const TString& pathBase : pathBases) {
+    const TString inFile = base + pathBase + "/particles_simulation_matched.root";
+    TFile* fIn = TFile::Open(inFile);
+    if (!fIn || fIn->IsZombie()) { std::cerr << "Cannot open " << inFile << " — skipping" << std::endl; continue; }
 
-    for (unsigned i_part = 0; i_part < eta->size(); i_part++) {
-      // Apply cuts:
-      // 1. Only consider primary particles (generation == 0)
-      // 2. Only consider particles with at least nMinHits hits
-      if (generation->at(i_part) != 0 ||
-          nhits->at(i_part) < nMinHits) continue;
+    TTree* t = (TTree*)fIn->Get("particles");
+    if (!t) { std::cerr << "particles tree not found in " << inFile << " — skipping" << std::endl; fIn->Close(); continue; }
 
-      const bool wasReco = !matchedIdxs->at(i_part).empty();
+    std::vector<float>* eta = nullptr;
+    std::vector<float>* phi = nullptr;
+    std::vector<float>* pt = nullptr;
+    std::vector<int>* nhits = nullptr;
+    std::vector<unsigned>* generation = nullptr;
+    std::vector<std::vector<unsigned int>>* matchedIdxs = nullptr;
 
-      pHitsAll->Fill(eta->at(i_part), nhits->at(i_part));
-      if (wasReco) pHitsReco->Fill(eta->at(i_part), nhits->at(i_part));
-      else         pHitsNReco->Fill(eta->at(i_part), nhits->at(i_part));
+    t->SetBranchAddress("eta",                &eta);
+    t->SetBranchAddress("phi",                &phi);
+    t->SetBranchAddress("pt",                 &pt);
+    t->SetBranchAddress("number_of_hits",     &nhits);
+    t->SetBranchAddress("generation",         &generation);
+    t->SetBranchAddress("matched_track_idxs", &matchedIdxs);
 
-      effEta->Fill(wasReco, eta->at(i_part));
-      eff2D->Fill(wasReco, eta->at(i_part), phi->at(i_part));
-      effEtaPt->Fill(wasReco, eta->at(i_part), pt->at(i_part));
+    Long64_t nEntries = t->GetEntries();
+    for (Long64_t i = 0; i < nEntries; i++) {
+      t->GetEntry(i);
+
+      for (unsigned i_part = 0; i_part < eta->size(); i_part++) {
+        if (generation->at(i_part) != 0 ||
+            nhits->at(i_part) < nMinHits) continue;
+
+        const bool wasReco = !matchedIdxs->at(i_part).empty();
+
+        pHitsAll->Fill(eta->at(i_part), nhits->at(i_part));
+        if (wasReco) pHitsReco->Fill(eta->at(i_part), nhits->at(i_part));
+        else         pHitsNReco->Fill(eta->at(i_part), nhits->at(i_part));
+
+        effEta->Fill(wasReco, eta->at(i_part));
+        eff2D->Fill(wasReco, eta->at(i_part), phi->at(i_part));
+        effEtaPt->Fill(wasReco, eta->at(i_part), pt->at(i_part));
+      }
     }
+    fIn->Close();
   }
 
   // --- Canvas 1: mean hits vs eta ---
@@ -134,7 +135,6 @@ void geo_efficiency_plots(
   eff2D->Write("eff2D");
   effEtaPt->Write("effEtaPt");
   fOut->Close();
-  fIn->Close();
 
   std::cout << "Histograms saved to " << rootOutFile << std::endl;
 }

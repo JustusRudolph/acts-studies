@@ -7,47 +7,52 @@
 #include <TString.h>
 #include <TMath.h>
 #include <iostream>
+#include <vector>
 
 void geo_measurement_positions(
-  const TString pathToFilesFromOutput = "geo_staves_pi_1GeV_eta14-20",
+  const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool useOnlyPrimaryTracks = true)
 {
   const TString base           = "/home/justus/projects/alice/ACTSO2/output/";
   const TString geo_studies_base = "/home/justus/projects/alice/acts-studies/geo_studies/";
-  const TString inFile         = base + pathToFilesFromOutput + "/measurements.root";
   const TString rootOutFile    = geo_studies_base + "histos/geo/geo_measurement_positions.root";
   const TString pdfOutFile     = geo_studies_base + "figures/geo/geo_measurement_positions.pdf";
-
-  TFile* fIn = TFile::Open(inFile);
-  if (!fIn || fIn->IsZombie()) { std::cerr << "Cannot open " << inFile << std::endl; return; }
-
-  TTree* t = (TTree*)fIn->Get("measurements");
-  if (!t) { std::cerr << "measurements tree not found" << std::endl; return; }
-
-  float rec_gx, rec_gy, rec_gz;
-  std::vector<unsigned int>* particles_generation = nullptr;
-
-  t->SetBranchAddress("rec_gx",               &rec_gx);
-  t->SetBranchAddress("rec_gy",               &rec_gy);
-  t->SetBranchAddress("rec_gz",               &rec_gz);
-  t->SetBranchAddress("particles_generation", &particles_generation);
 
   TH2F* hZR = new TH2F("hZR", ";z (mm);r (mm)", 200, 0, 2500, 200, 0, 1000);
   hZR->SetStats(false);
 
-  Long64_t nEntries = t->GetEntries();
-  for (Long64_t i = 0; i < nEntries; i++) {
-    t->GetEntry(i);
+  // --- Event loop over all input files ---
+  for (const TString& pathBase : pathBases) {
+    const TString inFile = base + pathBase + "/measurements.root";
+    TFile* fIn = TFile::Open(inFile);
+    if (!fIn || fIn->IsZombie()) { std::cerr << "Cannot open " << inFile << " — skipping" << std::endl; continue; }
 
-    if (useOnlyPrimaryTracks) {
-      bool hasPrimary = false;
-      for (unsigned gen : *particles_generation)
-        if (gen == 0) { hasPrimary = true; break; }
-      if (!hasPrimary) continue;
+    TTree* t = (TTree*)fIn->Get("measurements");
+    if (!t) { std::cerr << "measurements tree not found in " << inFile << " — skipping" << std::endl; fIn->Close(); continue; }
+
+    float rec_gx, rec_gy, rec_gz;
+    std::vector<unsigned int>* particles_generation = nullptr;
+
+    t->SetBranchAddress("rec_gx",               &rec_gx);
+    t->SetBranchAddress("rec_gy",               &rec_gy);
+    t->SetBranchAddress("rec_gz",               &rec_gz);
+    t->SetBranchAddress("particles_generation", &particles_generation);
+
+    Long64_t nEntries = t->GetEntries();
+    for (Long64_t i = 0; i < nEntries; i++) {
+      t->GetEntry(i);
+
+      if (useOnlyPrimaryTracks) {
+        bool hasPrimary = false;
+        for (unsigned gen : *particles_generation)
+          if (gen == 0) { hasPrimary = true; break; }
+        if (!hasPrimary) continue;
+      }
+
+      const float r = TMath::Sqrt(rec_gx * rec_gx + rec_gy * rec_gy);
+      hZR->Fill(rec_gz, r);
     }
-
-    const float r = TMath::Sqrt(rec_gx * rec_gx + rec_gy * rec_gy);
-    hZR->Fill(rec_gz, r);
+    fIn->Close();
   }
 
   TCanvas* c1 = new TCanvas("c1", "Measurement positions z vs r", 900, 700);
@@ -99,7 +104,6 @@ void geo_measurement_positions(
   hZR->Write();
   c1->Write();
   fOut->Close();
-  fIn->Close();
 
   std::cout << "Plot saved to " << pdfOutFile << std::endl;
 }
