@@ -9,10 +9,14 @@
 
 void add_matching_to_particles(
   const TString pathToFilesFromOutput = "geo_staves_pi_1GeV_eta14-20",
+  const bool onSTBC = false,
   const bool checkPrimaryOnly=true)
 {
 
-  const TString base = "/home/justus/projects/alice/ACTSO2/output/";
+  TString base = "/home/justus/projects/alice/ACTSO2/output/";
+  if (onSTBC) {
+    base = "/data/alice/jrudolph/alice/ACTSO2/output/";
+  }
   const TString simFile  = base + pathToFilesFromOutput
                          + "/particles_simulation.root";
   const TString perfFile = base + pathToFilesFromOutput
