@@ -199,23 +199,23 @@ void draw_hits_seeds_states_EbyE_Nov26_Re_Jan2026(TString path_to_hits,
     graph_rz->GetYaxis()->SetTitleOffset(1.2);
   }
 
-  if (drawSecondaries) {
-    nDrawn_rz_other_event =
-      inputTreeHits->Draw("sqrt(tx*tx + ty*ty):tz",
-                          Form("event_id==%d", evOther), "P SAME");
-  } else {
-    nDrawn_rz_other_event =
-      inputTreeHits->Draw("sqrt(tx*tx + ty*ty):tz",
-                          Form("event_id==%d && barcode_generation==0", evOther), "P SAME");
-  }
+  // if (drawSecondaries) {
+  //   nDrawn_rz_other_event =
+  //     inputTreeHits->Draw("sqrt(tx*tx + ty*ty):tz",
+  //                         Form("event_id==%d", evOther), "P SAME");
+  // } else {
+  //   nDrawn_rz_other_event =
+  //     inputTreeHits->Draw("sqrt(tx*tx + ty*ty):tz",
+  //                         Form("event_id==%d && barcode_generation==0", evOther), "P SAME");
+  // }
 
-  TGraph *graph_rz_ev2 = (TGraph *)gPad->GetPrimitive("Graph");
-  if (graph_rz_ev2 != 0x0) {
-    graph_rz_ev2->SetName("graph_rz_ev2");
-    graph_rz_ev2->SetMarkerColor(kBlue);
-    graph_rz_ev2->SetMarkerStyle(20);
-    graph_rz_ev2->SetMarkerSize(1.0);
-  }
+  // TGraph *graph_rz_ev2 = (TGraph *)gPad->GetPrimitive("Graph");
+  // if (graph_rz_ev2 != 0x0) {
+  //   graph_rz_ev2->SetName("graph_rz_ev2");
+  //   graph_rz_ev2->SetMarkerColor(kBlue);
+  //   graph_rz_ev2->SetMarkerStyle(20);
+  //   graph_rz_ev2->SetMarkerSize(1.0);
+  // }
   
   gPad->SetGrid();
   // gPad->SetLogy(1);
