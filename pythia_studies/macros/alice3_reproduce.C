@@ -106,12 +106,12 @@ void alice3_reproduce(const bool onSTBC=false,
 
   for (const TString& input_dir : input_dirs) {
     TString dir_name = Form("%s/%s", actso2_base.Data(), input_dir.Data());
-    TString perf_ambi_filename = dir_name + "/performance_finding_ambi.root";
+    TString sim_matched_filename = dir_name + "/particles_simulation_matched.root";
     TString perf_seed_filename = dir_name + "/performance_seeding.root";
-    TFile* perf_ambi_file = TFile::Open(perf_ambi_filename);
+    TFile* sim_matched_file = TFile::Open(sim_matched_filename);
     TFile* perf_seed_file = TFile::Open(perf_seed_filename);
-    if (!perf_ambi_file || perf_ambi_file->IsZombie()) {
-      std::cout << "Warning: Could not open " << perf_ambi_filename << std::endl;
+    if (!sim_matched_file || sim_matched_file->IsZombie()) {
+      std::cout << "Warning: Could not open " << sim_matched_filename << std::endl;
       continue;
     }
     if (!perf_seed_file || perf_seed_file->IsZombie()) {
@@ -119,18 +119,14 @@ void alice3_reproduce(const bool onSTBC=false,
       continue;
     }
 
-    TTree* ambi_mc_tree = (TTree*)perf_ambi_file->Get("matchingdetails");
+    TTree* sim_tree = (TTree*)sim_matched_file->Get("particles");
     TTree* seed_mc_tree = (TTree*)perf_seed_file->Get("matchingdetails");
 
-    std::vector<bool>* matched = nullptr;
-    std::vector<bool>* isSecondary = nullptr;
     std::vector<float>* eta = nullptr;
+    std::vector<float>* pt = nullptr;
     std::vector<int>* pdg = nullptr;
-    std::vector<float>* pT_initial = nullptr;
-    std::vector<float>* pT_final = nullptr;
-    std::vector<float>* p_initial = nullptr;
-    std::vector<float>* p_final = nullptr;
-    // std::vector<float>* phi = nullptr;
+    std::vector<unsigned>* generation = nullptr;
+    std::vector<std::vector<unsigned>>* matchedIdxs = nullptr;
 
     std::vector<bool>* matched_seed = nullptr;
     std::vector<bool>* isSecondary_seed = nullptr;
@@ -141,15 +137,11 @@ void alice3_reproduce(const bool onSTBC=false,
     std::vector<float>* p_initial_seed = nullptr;
     std::vector<float>* p_final_seed = nullptr;
 
-    ambi_mc_tree->SetBranchAddress("matched", &matched);
-    ambi_mc_tree->SetBranchAddress("isSecondary", &isSecondary);
-    ambi_mc_tree->SetBranchAddress("eta", &eta);
-    ambi_mc_tree->SetBranchAddress("pdg", &pdg);
-    ambi_mc_tree->SetBranchAddress("pT_final", &pT_final);
-    ambi_mc_tree->SetBranchAddress("p_final", &p_final);
-    ambi_mc_tree->SetBranchAddress("pT_initial", &pT_initial);
-    ambi_mc_tree->SetBranchAddress("p_initial", &p_initial);
-    // ambi_mc_tree->SetBranchAddress("phi", &phi);
+    sim_tree->SetBranchAddress("eta",                &eta);
+    sim_tree->SetBranchAddress("pt",                 &pt);
+    sim_tree->SetBranchAddress("<pdg_branch>",       &pdg);
+    sim_tree->SetBranchAddress("generation",         &generation);
+    sim_tree->SetBranchAddress("matched_track_idxs", &matchedIdxs);
 
     if (seed_mc_tree != nullptr) {
       seed_mc_tree->SetBranchAddress("matched", &matched_seed);
@@ -162,26 +154,22 @@ void alice3_reproduce(const bool onSTBC=false,
       seed_mc_tree->SetBranchAddress("p_initial", &p_initial_seed);
     }
 
-    for (unsigned i_ev = 0; i_ev < ambi_mc_tree->GetEntries(); i_ev++) {
-      ambi_mc_tree->GetEntry(i_ev);
-      for (size_t i_mcp = 0; i_mcp < matched->size(); i_mcp++) {
+    for (unsigned i_ev = 0; i_ev < sim_tree->GetEntries(); i_ev++) {
+      sim_tree->GetEntry(i_ev);
+      for (size_t i_mcp = 0; i_mcp < eta->size(); i_mcp++) {
         if (std::find(pdg_codes.begin(),
                       pdg_codes.end(),
                       pdg->at(i_mcp)) == pdg_codes.end())
-          continue;  // particle type not in our list, skip
+          continue;
 
         unsigned i_part = pdg_to_index[pdg->at(i_mcp)];
         if (std::abs(eta->at(i_mcp)) < abs_eta_max
-            && !isSecondary->at(i_mcp)
-            && pT_final->at(i_mcp) > pT_fraction_kept * pT_initial->at(i_mcp)) {
-          // TODO: UNCOMMENT THIS WHEN YOU HAVE PHI OUTPUT IN MATCHINGDETAILS
-          // ALSO NOT RELEVANT FOR GEANT4 GEOMETRY (PERFECT CYLINDER)
-          // if (Cuts::petalcut_phi(phi->at(i_mcp)))
-          //   continue;  // if at petal, skip
-          eff_hists_central[i_part]->Fill(matched->at(i_mcp), pT_initial->at(i_mcp));
+            && generation->at(i_mcp) == 0) {
+          eff_hists_central[i_part]->Fill(!matchedIdxs->at(i_mcp).empty(), pt->at(i_mcp));
         }
       }
-    }  // loop over ambi tree entries
+    }  // loop over sim_matched tree entries
+    sim_matched_file->Close();
 
     if (seed_mc_tree != nullptr) {
       // seeding efficiency available
@@ -202,7 +190,6 @@ void alice3_reproduce(const bool onSTBC=false,
       }  // loop over seeding tree entries
       perf_seed_file->Close();
     }  // if seeding tree exists
-    perf_ambi_file->Close();
   }  // loop over input files
 
   // ------------------- Now get efficiency vs phi for central eta -------------------
