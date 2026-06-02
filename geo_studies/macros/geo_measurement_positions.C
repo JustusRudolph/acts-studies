@@ -11,10 +11,12 @@
 
 void geo_measurement_positions(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
+  const bool onSTBC=false,
   const bool useOnlyPrimaryTracks = true)
 {
-  const TString base           = "/home/justus/projects/alice/ACTSO2/output/";
-  const TString geo_studies_base = "/home/justus/projects/alice/acts-studies/geo_studies/";
+  const TString base           = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
+  const TString actso2_output_base = base + "alice/ACTSO2/output/";
+  const TString geo_studies_base = base + "alice/acts-studies/geo_studies/";
   const TString rootOutFile    = geo_studies_base + "histos/geo/geo_measurement_positions.root";
   const TString pdfOutFile     = geo_studies_base + "figures/geo/geo_measurement_positions.pdf";
 
@@ -23,7 +25,7 @@ void geo_measurement_positions(
 
   // --- Event loop over all input files ---
   for (const TString& pathBase : pathBases) {
-    const TString inFile = base + pathBase + "/measurements.root";
+    const TString inFile = actso2_output_base + pathBase + "/measurements.root";
     TFile* fIn = TFile::Open(inFile);
     if (!fIn || fIn->IsZombie()) { std::cerr << "Cannot open " << inFile << " — skipping" << std::endl; continue; }
 

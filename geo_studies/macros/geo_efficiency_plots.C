@@ -13,36 +13,42 @@
 
 void geo_efficiency_plots(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
+  const bool onSTBC=false,
   const unsigned nMinHits=3,
-  const bool useFullEtaRange=false)
+  const float etaMin=-2.5,
+  const float etaMax=2.5
+)
 {
-  const TString base    = "/home/justus/projects/alice/ACTSO2/output/";
-  const TString geo_studies_base = "/home/justus/projects/alice/acts-studies/geo_studies/";
+  const TString base = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
+  const TString actso2_output_base    = base + "alice/ACTSO2/output/";
+  const TString geo_studies_base = base + "alice/acts-studies/geo_studies/";
   const TString rootOutFile = geo_studies_base + "histos/efficiencies/geo_efficiency_plots.root";
   const TString pdfOutFile = geo_studies_base + "figures/efficiencies/";
 
-  double etaMin = useFullEtaRange ? -2.5 : 1.4;
-  double etaMax = useFullEtaRange ? 2.5 : 2.0;
-  // Plot 1: mean number of hits vs eta (100 bins, 1.4–2.0)
+  // Plot 1: mean number of hits vs eta (100 bins, etaMin–etaMax)
   TProfile* pHitsAll   = new TProfile("pHitsAll",   ";;Mean number of hits", 100, etaMin, etaMax);
   TProfile* pHitsReco  = new TProfile("pHitsReco",  ";;Mean number of hits", 100, etaMin, etaMax);
   TProfile* pHitsNReco = new TProfile("pHitsNReco", ";;Mean number of hits", 100, etaMin, etaMax);
 
-  // Plot 2: 1D efficiency vs eta (100 bins, 1.4–2.0)
+  // Plot 2: 1D efficiency vs eta (100 bins, etaMin–etaMax)
   auto* effEta = new TEfficiency("effEta", ";#eta;Efficiency",
                                  100, etaMin, etaMax);
 
-  // Plot 3: 2D efficiency eta-phi (|eta| < 2.5, full phi)
+  // Plot 3: 2D efficiency eta-phi (etamMin-etaMax, full phi)
   auto* eff2D = new TEfficiency("eff2D", ";#eta;#phi;Efficiency",
                                 100, etaMin, etaMax, 100, -TMath::Pi(), TMath::Pi());
 
-  // Plot 4: 2D efficiency eta-pT (100 bins eta, 1.4–2.0)
+  // Plot 4: 2D efficiency eta-pT (100 bins eta, etaMin–etaMax)
   auto* effEtaPt = new TEfficiency("effEtaPt", ";#eta;p_{T} (GeV/c);Efficiency",
                                    100, etaMin, etaMax, 100, 0.5, 5.0);
 
   // --- Event loop over all input files ---
+  unsigned nFillsTotal{0};
   for (const TString& pathBase : pathBases) {
-    const TString inFile = base + pathBase + "/particles_simulation_matched.root";
+    unsigned nFills{0};
+    std::cout << "Processing " << pathBase << "..." << std::endl;
+
+    const TString inFile = actso2_output_base + pathBase + "/particles_simulation_matched.root";
     TFile* fIn = TFile::Open(inFile);
     if (!fIn || fIn->IsZombie()) { std::cerr << "Cannot open " << inFile << " — skipping" << std::endl; continue; }
 
@@ -72,6 +78,8 @@ void geo_efficiency_plots(
             nhits->at(i_part) < nMinHits) continue;
 
         const bool wasReco = !matchedIdxs->at(i_part).empty();
+        nFills++;
+        nFillsTotal++;
 
         pHitsAll->Fill(eta->at(i_part), nhits->at(i_part));
         if (wasReco) pHitsReco->Fill(eta->at(i_part), nhits->at(i_part));
@@ -83,7 +91,9 @@ void geo_efficiency_plots(
       }
     }
     fIn->Close();
+    std::cout << "Number of fills in " << pathBase << ": " << nFills << std::endl;
   }
+  std::cout << "Total number of fills: " << nFillsTotal << std::endl;
 
   // --- Canvas 1: mean hits vs eta ---
   TCanvas* c1 = new TCanvas("c1", "Mean hits vs #eta", 800, 600);
