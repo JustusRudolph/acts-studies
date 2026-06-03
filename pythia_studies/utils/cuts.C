@@ -16,4 +16,22 @@ bool petalcut_phi(float phi, float epsilon=0.1) {
          );
 }
 
+bool eta_cut(float eta, float abs_eta_max) {
+  return std::abs(eta) < abs_eta_max;
+}
+
+bool minHits_cut(unsigned nHits, unsigned min_nHits) {
+  return nHits >= min_nHits;
+}
+
+bool primary_cut(unsigned generation) {
+  return generation == 0;
+}
+
+bool alice3_default_cut(float eta, unsigned nHits, unsigned generation) {
+  return eta_cut(eta, 1) &&
+         minHits_cut(nHits, 7) &&
+         primary_cut(generation);
+}
+
 }  // namespace Cuts

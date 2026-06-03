@@ -52,7 +52,7 @@ void phi_dep_eff(const std::vector<TString>& phi_eff_input_data_types,
 }
 
 void alice3_reproduce(const bool onSTBC=false,
-                      const std::vector<TString> input_dirs={"50k_pythia_1"},
+                      const std::vector<TString> input_dirs={"pythia_20k_1"},
                       const std::vector<TString> phi_eff_input_dirs={},
                       const float abs_eta_max = 1.0,
                       const float pT_fraction_kept = 0.8,
@@ -107,52 +107,30 @@ void alice3_reproduce(const bool onSTBC=false,
   for (const TString& input_dir : input_dirs) {
     TString dir_name = Form("%s/%s", actso2_base.Data(), input_dir.Data());
     TString sim_matched_filename = dir_name + "/particles_simulation_matched.root";
-    TString perf_seed_filename = dir_name + "/performance_seeding.root";
     TFile* sim_matched_file = TFile::Open(sim_matched_filename);
-    TFile* perf_seed_file = TFile::Open(perf_seed_filename);
     if (!sim_matched_file || sim_matched_file->IsZombie()) {
       std::cout << "Warning: Could not open " << sim_matched_filename << std::endl;
       continue;
     }
-    if (!perf_seed_file || perf_seed_file->IsZombie()) {
-      std::cout << "Warning: Could not open " << perf_seed_filename << std::endl;
-      continue;
-    }
 
     TTree* sim_tree = (TTree*)sim_matched_file->Get("particles");
-    TTree* seed_mc_tree = (TTree*)perf_seed_file->Get("matchingdetails");
 
     std::vector<float>* eta = nullptr;
     std::vector<float>* pt = nullptr;
     std::vector<int>* pdg = nullptr;
     std::vector<unsigned>* generation = nullptr;
+    std::vector<unsigned>* nHits = nullptr;
     std::vector<std::vector<unsigned>>* matchedIdxs = nullptr;
+    std::vector<std::vector<unsigned>>* matchedIdxs_Seed = nullptr;
 
-    std::vector<bool>* matched_seed = nullptr;
-    std::vector<bool>* isSecondary_seed = nullptr;
-    std::vector<float>* eta_seed = nullptr;
-    std::vector<int>* pdg_seed = nullptr;
-    std::vector<float>* pT_initial_seed = nullptr;
-    std::vector<float>* pT_final_seed = nullptr;
-    std::vector<float>* p_initial_seed = nullptr;
-    std::vector<float>* p_final_seed = nullptr;
+    sim_tree->SetBranchAddress("eta",                     &eta);
+    sim_tree->SetBranchAddress("pt",                      &pt);
+    sim_tree->SetBranchAddress("particle_type",           &pdg);
+    sim_tree->SetBranchAddress("generation",              &generation);
+    sim_tree->SetBranchAddress("number_of_hits",          &nHits);
+    sim_tree->SetBranchAddress("matched_track_idxs",      &matchedIdxs);
+    sim_tree->SetBranchAddress("seed_matched_track_idxs", &matchedIdxs_Seed);
 
-    sim_tree->SetBranchAddress("eta",                &eta);
-    sim_tree->SetBranchAddress("pt",                 &pt);
-    sim_tree->SetBranchAddress("<pdg_branch>",       &pdg);
-    sim_tree->SetBranchAddress("generation",         &generation);
-    sim_tree->SetBranchAddress("matched_track_idxs", &matchedIdxs);
-
-    if (seed_mc_tree != nullptr) {
-      seed_mc_tree->SetBranchAddress("matched", &matched_seed);
-      seed_mc_tree->SetBranchAddress("isSecondary", &isSecondary_seed);
-      seed_mc_tree->SetBranchAddress("eta", &eta_seed);
-      seed_mc_tree->SetBranchAddress("pdg", &pdg_seed);
-      seed_mc_tree->SetBranchAddress("pT_final", &pT_final_seed);
-      seed_mc_tree->SetBranchAddress("p_final", &p_final_seed);
-      seed_mc_tree->SetBranchAddress("pT_initial", &pT_initial_seed);
-      seed_mc_tree->SetBranchAddress("p_initial", &p_initial_seed);
-    }
 
     for (unsigned i_ev = 0; i_ev < sim_tree->GetEntries(); i_ev++) {
       sim_tree->GetEntry(i_ev);
@@ -163,33 +141,17 @@ void alice3_reproduce(const bool onSTBC=false,
           continue;
 
         unsigned i_part = pdg_to_index[pdg->at(i_mcp)];
-        if (std::abs(eta->at(i_mcp)) < abs_eta_max
-            && generation->at(i_mcp) == 0) {
-          eff_hists_central[i_part]->Fill(!matchedIdxs->at(i_mcp).empty(), pt->at(i_mcp));
+        if (Cuts::alice3_default_cut(eta->at(i_mcp),
+                                     nHits->at(i_mcp),
+                                     generation->at(i_mcp))) {
+          eff_hists_central[i_part]->Fill(!( matchedIdxs->at(i_mcp).empty() ),
+                                          pt->at(i_mcp));
+          eff_seeding_hists_central[i_part]->Fill(!( matchedIdxs_Seed->at(i_mcp).empty() ),
+                                                  pt->at(i_mcp));
         }
       }
     }  // loop over sim_matched tree entries
     sim_matched_file->Close();
-
-    if (seed_mc_tree != nullptr) {
-      // seeding efficiency available
-      for (unsigned i_ev = 0; i_ev < seed_mc_tree->GetEntries(); i_ev++) {
-        seed_mc_tree->GetEntry(i_ev);
-        for (size_t i_mcp = 0; i_mcp < matched_seed->size(); i_mcp++) {
-          if (std::find(pdg_codes.begin(),
-                        pdg_codes.end(),
-                        pdg_seed->at(i_mcp)) == pdg_codes.end())
-            continue;  // particle type not in our list, skip
-          unsigned i_part = pdg_to_index[pdg_seed->at(i_mcp)];
-          if (std::abs(eta_seed->at(i_mcp)) < abs_eta_max
-              && !isSecondary_seed->at(i_mcp)
-              && pT_final_seed->at(i_mcp) > pT_fraction_kept * pT_initial_seed->at(i_mcp)) {
-            eff_seeding_hists_central[i_part]->Fill(matched_seed->at(i_mcp), pT_initial_seed->at(i_mcp));
-          }
-        }
-      }  // loop over seeding tree entries
-      perf_seed_file->Close();
-    }  // if seeding tree exists
   }  // loop over input files
 
   // ------------------- Now get efficiency vs phi for central eta -------------------
@@ -200,14 +162,13 @@ void alice3_reproduce(const bool onSTBC=false,
   if (phi_eff_input_dirs.size() > 0) {
     phi_dep_eff(phi_eff_input_dirs, eff_wrt_phi_near_central, eff_wrt_phi_complete_central);
   } else {
-    std::cout << "No phi efficiency input data type provided, skipping phi efficiency plot." << std::endl;
+    std::cout << "No input directories provided for phi-dependent efficiency plot. "
+              << "Use same inputs as for pT-dependent efficiency plot." << std::endl;
+    phi_dep_eff(input_dirs, eff_wrt_phi_near_central, eff_wrt_phi_complete_central);
   }
 
   // Now plot efficiency vs pT for all particles
-  TCanvas* canvas = new TCanvas("canvas_efficiency_alice3", "Efficiency vs pT", 1500, 1300);
-  canvas->Divide(2,2);
-  canvas->cd(1);
-  
+  TCanvas* canvas1 = new TCanvas("c1", "Efficiency vs pT", 800, 600);
   // LEGEND
   // put legend in bottom right corner: same for ambi and seeding plots
   TLegend* leg_eff = new TLegend(0.6, 0.15, 0.85, 0.35 );
@@ -269,8 +230,10 @@ void alice3_reproduce(const bool onSTBC=false,
   eff_hists_central[0]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0, 1.05);
   eff_hists_central[0]->GetPaintedGraph()->GetXaxis()->SetRangeUser(0.005, 11.0);
 
+  canvas1->SaveAs("figures/alice3_reproduced_plots/efficiency_vs_pT.pdf");
+
   // ----------- Now plot seeding efficiency vs pT for all particles -----------
-  canvas->cd(2);
+  TCanvas* canvas2 = new TCanvas("c2", "Seeding Efficiency vs pT", 800, 600);
   eff_seeding_hists_central[0]->SetTitle("Seeding Efficiency vs p_{T} for various particles (|#eta| < 1); p_{T} (MeV/c); Seeding Efficiency");
   for (unsigned i_part = 0; i_part < particles.size(); i_part++) {
     eff_seeding_hists_central[i_part]->SetMarkerColor(colours_per_particle[i_part]);
@@ -316,33 +279,32 @@ void alice3_reproduce(const bool onSTBC=false,
   eff_seeding_hists_central[0]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0, 1.05);
   eff_seeding_hists_central[0]->GetPaintedGraph()->GetXaxis()->SetRangeUser(0.005, 11.0);
 
+  canvas2->SaveAs("figures/alice3_reproduced_plots/seeding_efficiency_vs_pT.pdf");
+
   // Now plot efficiency vs phi for central eta
-  if (phi_eff_input_data_type != "") {
-    canvas->cd(3);
-    eff_wrt_phi_near_central->SetMarkerColor(kViolet);
-    eff_wrt_phi_near_central->SetLineColor(kViolet);
-    eff_wrt_phi_near_central->SetMarkerStyle(20);
-    eff_wrt_phi_near_central->SetMarkerSize(1);
+  TCanvas* canvas3 = new TCanvas("c3", "Efficiency vs phi for central eta", 800, 600);
+  eff_wrt_phi_near_central->SetMarkerColor(kViolet);
+  eff_wrt_phi_near_central->SetLineColor(kViolet);
+  eff_wrt_phi_near_central->SetMarkerStyle(20);
+  eff_wrt_phi_near_central->SetMarkerSize(1);
 
-    eff_wrt_phi_complete_central->SetMarkerColor(kOrange+7);
-    eff_wrt_phi_complete_central->SetLineColor(kOrange+7);
-    eff_wrt_phi_complete_central->SetMarkerStyle(24);
-    eff_wrt_phi_complete_central->SetMarkerSize(1);
-    eff_wrt_phi_near_central->SetTitle("Efficiency vs #phi for 1 GeV/c #pi^{#pm}; #phi (rad); Efficiency");
-    eff_wrt_phi_near_central->Draw("EP");
-    eff_wrt_phi_complete_central->Draw("EP SAME");
+  eff_wrt_phi_complete_central->SetMarkerColor(kOrange+7);
+  eff_wrt_phi_complete_central->SetLineColor(kOrange+7);
+  eff_wrt_phi_complete_central->SetMarkerStyle(24);
+  eff_wrt_phi_complete_central->SetMarkerSize(1);
+  eff_wrt_phi_near_central->SetTitle("Efficiency vs #phi for 1 GeV/c #pi^{#pm}; #phi (rad); Efficiency");
+  eff_wrt_phi_near_central->Draw("EP");
+  eff_wrt_phi_complete_central->Draw("EP SAME");
 
-    gPad->Update();
-    eff_wrt_phi_near_central->GetPaintedGraph()->GetYaxis()->SetRangeUser(0., 1.05);
+  gPad->Update();
+  eff_wrt_phi_near_central->GetPaintedGraph()->GetYaxis()->SetRangeUser(0., 1.05);
 
-    TLegend* leg2 = new TLegend(0.6, 0.25, 0.85, 0.35);
-    leg2->SetBorderSize(0);
-    leg2->SetFillStyle(0);
-    leg2->AddEntry(eff_wrt_phi_near_central, "0.007 < |#eta| < 0.01", "lp");
-    leg2->AddEntry(eff_wrt_phi_complete_central, "|#eta| < 10^{-4}", "lp");
-    leg2->Draw();
-  }
+  TLegend* leg2 = new TLegend(0.6, 0.25, 0.85, 0.35);
+  leg2->SetBorderSize(0);
+  leg2->SetFillStyle(0);
+  leg2->AddEntry(eff_wrt_phi_near_central, "0.007 < |#eta| < 0.01", "lp");
+  leg2->AddEntry(eff_wrt_phi_complete_central, "|#eta| < 10^{-4}", "lp");
+  leg2->Draw();
 
-  canvas->SaveAs(Form("figures/alice3_reproduced_plots/%s_%s.pdf",
-                      input_data_type.c_str(), phi_eff_input_data_type.c_str()));
+  canvas3->SaveAs("figures/alice3_reproduced_plots/eff_wrt_phi_central_eta.pdf");
 }
