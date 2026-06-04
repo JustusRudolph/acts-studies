@@ -18,17 +18,17 @@ void add_matching_to_particles(
     base = "/data/alice/jrudolph/alice/ACTSO2/output/";
   }
   const TString simFile  = base + pathToFilesFromOutput
-                         + "/particles_simulation.root";
-  const TString perfFile = base + pathToFilesFromOutput
+                         + "/particles_digitized_selected.root";
+  const TString perfAmbiFile = base + pathToFilesFromOutput
                          + "/performance_finding_ambi.root";
   const TString perfSeedFile = base + pathToFilesFromOutput
                          + "/performance_seeding.root";
   const TString outFile  = base + pathToFilesFromOutput
-                         + "/particles_simulation_matched.root";
+                         + "/particles_matched.root";
   // --- Step 1: build lookup map from matchingdetails ---
-  TFile* fPerf = TFile::Open(perfFile);
+  TFile* fPerf = TFile::Open(perfAmbiFile);
   if (!fPerf || fPerf->IsZombie()) {
-    std::cerr << "Cannot open " << perfFile << std::endl;
+    std::cerr << "Cannot open " << perfAmbiFile << std::endl;
     return;
   }
   TFile* fSeedPerf = TFile::Open(perfSeedFile);
@@ -37,6 +37,7 @@ void add_matching_to_particles(
     return;
   }
 
+  std::cout << "Opened files: " << perfAmbiFile << " and " << perfSeedFile << std::endl;
   TTree* tPerf = (TTree*)fPerf->Get("matchingdetails");
   if (!tPerf) { std::cerr << "matchingdetails tree not found" << std::endl; return; }
 
@@ -64,6 +65,8 @@ void add_matching_to_particles(
   // set other branch addresses later to avoid loading vectors for this step
   tPerf->SetBranchAddress("event_nr", &perfEventId);
   tPerf->SetBranchAddress("particle_id_particle", &perfParticle);
+  tSeedPerf->SetBranchAddress("event_nr", &seedPerfEventId);
+  tSeedPerf->SetBranchAddress("particle_id_particle", &seedPerfParticle);
 
   // Nth entry in the vector corresponds to event N
   // map is (particle_id) ->  idx of matched & fake tracks in global matchingdetails tree
@@ -71,17 +74,13 @@ void add_matching_to_particles(
   MatchMap matchMap(tPerf->GetEntries());
   MatchMap seedMatchMap(tSeedPerf->GetEntries());
 
-  std::cout << "Loading matchingdetails from " << perfFile <<
+  std::cout << "Loading matchingdetails from " << perfAmbiFile <<
             " with " << tPerf->GetEntries() << " entries." << std::endl;
 
   std::cout << "matchMap size: " << matchMap.size() << std::endl;
 
   for (Long64_t i = 0; i < tPerf->GetEntries(); i++) {
     tPerf->GetEntry(i);
-    // if (i > 9300) {
-    //   std::cout << "Processing entry " << i << " with event_id " << perfEventId
-    //             << " and particle_id " << perfParticle << std::endl;
-    // }
     matchMap[perfEventId] = {};
     matchMap[perfEventId][perfParticle] = i;
   }
@@ -147,6 +146,11 @@ void add_matching_to_particles(
 
   for (Long64_t i = 0; i < nSim; i++) {
     tSim->GetEntry(i);
+    if (i % 1000 == 0 && i) {
+      std::cout << "Processed " << i << " / " << nSim
+                << " events. Found matches for " << nFound
+                << " particles." << std::endl;
+    }
     
     if (!simParticle->empty()) {  // There are particles in this event
       for (unsigned i_part = 0; i_part < simParticle->size(); i_part++) {

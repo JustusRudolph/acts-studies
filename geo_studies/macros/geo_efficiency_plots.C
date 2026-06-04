@@ -48,7 +48,7 @@ void geo_efficiency_plots(
     unsigned nFills{0};
     std::cout << "Processing " << pathBase << "..." << std::endl;
 
-    const TString inFile = actso2_output_base + pathBase + "/particles_simulation_matched.root";
+    const TString inFile = actso2_output_base + pathBase + "/particles_matched.root";
     TFile* fIn = TFile::Open(inFile);
     if (!fIn || fIn->IsZombie()) { std::cerr << "Cannot open " << inFile << " — skipping" << std::endl; continue; }
 
