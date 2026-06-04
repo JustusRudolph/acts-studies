@@ -52,10 +52,9 @@ void phi_dep_eff(const std::vector<TString>& phi_eff_input_data_types,
 }
 
 void alice3_reproduce(const bool onSTBC=false,
-                      const std::vector<TString> input_dirs={"pythia_20k_1"},
+                      const std::vector<TString> input_dirs={"pythia_5k/seed_0"},
                       const std::vector<TString> phi_eff_input_dirs={},
                       const float abs_eta_max = 1.0,
-                      const float pT_fraction_kept = 0.8,
                       const bool include_muons=false) {
   
   // Set ROOT style
