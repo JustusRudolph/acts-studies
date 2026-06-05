@@ -170,10 +170,22 @@ void disc_coverage(
 
     // Loop over hits and fill maps
     Long64_t nHits = tHits->GetEntries();
+    std::cout << "DEBUG: starting hits loop, nHits=" << nHits << std::flush << std::endl;
     for (Long64_t i = 0; i < nHits; i++) {
+      if (i % 10000 == 0) std::cout << "DEBUG: hits entry " << i << "/" << nHits << std::flush << std::endl;
       tHits->GetEntry(i);
       unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id);
       if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc hit, ignore
+
+      IDs discIDs = disc_idx_to_ID(disc_idx);
+      auto [disc_side, layer_in_side] = discIDs;
+      if (layer_in_side >= (unsigned)nDiscs) {
+        std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                  << " out of range at hits entry " << i
+                  << " vol=" << hit_volume_id << " layer=" << hit_layer_id
+                  << " disc_idx=" << disc_idx << std::flush << std::endl;
+        continue;
+      }
 
       // check if there already exist hits before adding another
       auto itDiscIdx = hitPosMap[hit_eventId][hit_particle_idx].find(disc_idx);
@@ -187,45 +199,58 @@ void disc_coverage(
           push_back(std::make_pair(hit_x, hit_y));
       }
 
-      IDs discIDs = disc_idx_to_ID(disc_idx);
-      auto [disc_side, layer_in_side] = discIDs;
       if (disc_side == 0) { // backward
         hHitsXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
       } else if (disc_side == 1) { // forward
         hHitsXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
       }
     }
+    std::cout << "DEBUG: hits loop done, hitPosMap has " << hitPosMap.size() << " events" << std::flush << std::endl;
 
     // Loop over measurements and fill maps
     Long64_t nMeas = tMeas->GetEntries();
+    std::cout << "DEBUG: starting measurements loop, nMeas=" << nMeas << std::flush << std::endl;
     for (Long64_t i = 0; i < nMeas; i++) {
+      if (i % 10000 == 0) std::cout << "DEBUG: meas entry " << i << "/" << nMeas << std::flush << std::endl;
       tMeas->GetEntry(i);
       unsigned disc_idx = volume_and_layer_id_to_disc_idx(meas_volume_id, meas_layer_id);
       if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc measurement, ignore
 
+      IDs discIDs = disc_idx_to_ID(disc_idx);
+      auto [disc_side, layer_in_side] = discIDs;
+      if (layer_in_side >= (unsigned)nDiscs) {
+        std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                  << " out of range at meas entry " << i
+                  << " vol=" << meas_volume_id << " layer=" << meas_layer_id
+                  << " disc_idx=" << disc_idx << std::flush << std::endl;
+        continue;
+      }
+
       // check if there already exist measurements before adding another
       auto itDiscIdx = measPosMap[meas_eventId][meas_particle_idx].find(disc_idx);
       if (itDiscIdx == measPosMap[meas_eventId][meas_particle_idx].end()) {
-        // no measurements for this disc yet: add new entry
         measPosMap[meas_eventId][meas_particle_idx][disc_idx] =
           {std::make_pair(meas_true_x, meas_true_y)};
       } else {
-        // already measurements for this disc: add to vector
         measPosMap[meas_eventId][meas_particle_idx][disc_idx].
           push_back(std::make_pair(meas_true_x, meas_true_y));
       }
 
-      IDs discIDs = disc_idx_to_ID(disc_idx);
-      auto [disc_side, layer_in_side] = discIDs;
       if (disc_side == 0) { // backward
         hMeasXY_bwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
       } else if (disc_side == 1) { // forward
         hMeasXY_fwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
       }
     }
+    std::cout << "DEBUG: meas loop done, measPosMap has " << measPosMap.size() << " events" << std::flush << std::endl;
 
     // loop over events and particles in hitPosMap, check if they have measurement, and fill histograms
+    std::cout << "DEBUG: starting match loop over " << hitPosMap.size() << " events" << std::flush << std::endl;
+    unsigned matchLoopEventCount = 0;
     for (const auto& [eventId, particlesInEvent] : hitPosMap) {
+      if (matchLoopEventCount % 100 == 0)
+        std::cout << "DEBUG: match loop event " << matchLoopEventCount << " (eventId=" << eventId << ")" << std::flush << std::endl;
+      matchLoopEventCount++;
       auto itMeasEvent = measPosMap.find(eventId);
 
       if (itMeasEvent == measPosMap.end()) {
@@ -275,12 +300,18 @@ void disc_coverage(
           continue;  // move to next particle
         }  // particle not found in measurements
         // -------------------------------- THIS PARTICLE HAS MEASUREMENTS -------------------------------
-        // this should be by far and away the most common case
         auto& measLayers = itMeasParticle->second;
         for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
           auto itMeasDiscIdx = measLayers.find(disc_idx);
           IDs discIDs = disc_idx_to_ID(disc_idx);
           auto [disc_side, layer_in_side] = discIDs;
+          if (layer_in_side >= (unsigned)nDiscs) {
+            std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                      << " out of range in match loop, eventId=" << eventId
+                      << " particleIdx=" << particleIdx << " disc_idx=" << disc_idx
+                      << std::flush << std::endl;
+            continue;
+          }
           if (itMeasDiscIdx == measLayers.end()) {
             // -------------------------------- THIS LAYER HAS NO MEASUREMENT -------------------------------
             // no measurement for this layer: all hits are misses (somewhat rare)
@@ -335,13 +366,18 @@ void disc_coverage(
       }  // loop over particles in event
     }  // loop over events
 
+    std::cout << "DEBUG: match loop done" << std::flush << std::endl;
+
     fHits->Close();
     fMeas->Close();
 
     // clear maps for next file
     hitPosMap.clear();
     measPosMap.clear();
+    std::cout << "DEBUG: maps cleared, moving to next file" << std::flush << std::endl;
   }
+
+  std::cout << "DEBUG: all files processed, starting drawing" << std::flush << std::endl;
 
   // --- Draw Canvases ---
   // all on different canvases, sorted by path: efficiencies into figures/geo/efficiency_layer
