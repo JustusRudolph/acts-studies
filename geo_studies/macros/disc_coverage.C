@@ -11,6 +11,57 @@
 #include <array>
 #include <unordered_map>
 
+// helper functions
+using Pos = std::pair<float, float>;
+using Positions = std::vector<Pos>;
+using IDs = std::pair<unsigned, unsigned>;  // bwd/fwd, disc idx
+using HitPosMap = std::unordered_map< /* event -> particle idx -> ID -> list of (x,y) in layer */
+  unsigned, std::unordered_map<unsigned, std::unordered_map<unsigned, Positions> > >;
+
+unsigned volume_and_layer_id_to_disc_idx(
+  unsigned volume_id, unsigned layer_id) {
+  if (volume_id == 8) { // OT backward
+    if (layer_id <= 4) return 5;  // most "left"most: largest |z|
+    else if (layer_id <= 8) return 4;
+    else if (layer_id <= 12) return 3;
+  } else if (volume_id == 20) { // ML backward
+    if (layer_id <= 4) return 2;  // most "left"most: largest |z|
+    else if (layer_id <= 8) return 1;
+    else if (layer_id <= 12) return 0;
+  } else if (volume_id == 22) { // ML forward
+    if (layer_id <= 4) return 6;  // most "left"most: smallest |z|
+    else if (layer_id <= 8) return 7;
+    else if (layer_id <= 12) return 8;
+  } else if (volume_id == 25) { // OT forward
+    if (layer_id <= 4) return 9;  // most "left"most: smallest |z|
+    else if (layer_id <= 8) return 10;
+    else if (layer_id <= 12) return 11;
+  } else {
+    // barrel hit -- ignore
+    // return maximum unsigned to indicate invalid
+    return std::numeric_limits<unsigned>::max(); // invalid
+  }
+  return std::numeric_limits<unsigned>::max(); // not a disc hit
+}
+
+IDs disc_idx_to_ID(unsigned disc_idx) {
+  if (disc_idx <= 5) return {0, disc_idx};  // backward
+  else if (disc_idx <= 11) return {1, disc_idx - 6};  // forward
+  else {
+    std::cerr << "Invalid disc_idx: " << disc_idx << std::endl;
+    return {std::numeric_limits<unsigned>::max(),
+            std::numeric_limits<unsigned>::max()}; // invalid
+  }
+}
+
+bool hit_measurement_match(Pos hit_pos, Pos meas_pos,
+                          double tol=0.1) {  // need some tolerance in matching: 100um now
+  double dx = hit_pos.first - meas_pos.first;
+  double dy = hit_pos.second - meas_pos.second;
+  return dx*dx < tol*tol && dy*dy < tol*tol;
+
+}
+
 void disc_coverage(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool onSTBC=false)
@@ -32,61 +83,11 @@ void disc_coverage(
 
   // --- Histograms ---
   // xy hit positions that reach measurements
-  std::array<TH2F*, nDiscs> hHitsXY_bwd, hHitsXY_fwd;
+  std::array<TH2F*, nDiscs> hHitsXY_bwd, hHitsXY_fwd, hMeasXY_bwd, hMeasXY_fwd;
   // xy hit positions that do NOT reach measurements
   std::array<TH2F*, nDiscs> hMissXY_bwd, hMissXY_fwd;
   // efficiency vs phi
   std::array<TEfficiency*, nDiscs> hEffPhi_bwd, hEffPhi_fwd;
-
-  using Pos = std::pair<float, float>;
-  using Positions = std::vector<Pos>;
-  using IDs = std::pair<unsigned, unsigned>;  // bwd/fwd, disc idx
-  using HitPosMap = std::unordered_map< /* event -> particle idx -> ID -> list of (x,y) in layer */
-    unsigned, std::unordered_map<unsigned, std::unordered_map<unsigned, Positions> > > >;
-
-  unsigned volume_and_layer_id_to_disc_idx(
-    unsigned volume_id, unsigned layer_id) {
-    if (volume_id == 8) { // OT backward
-      if (layer_id <= 4) return 5;  // most "left"most: largest |z|
-      else if (layer_id <= 8) return 4;
-      else if (layer_id <= 12) return 3;
-    } else if (volume_id == 20) { // ML backward
-      if (layer_id <= 4) return 2;  // most "left"most: largest |z|
-      else if (layer_id <= 8) return 1;
-      else if (layer_id <= 12) return 0;
-    } else if (volume_id == 22) { // ML forward
-      if (layer_id <= 4) return 6;  // most "left"most: smallest |z|
-      else if (layer_id <= 8) return 7;
-      else if (layer_id <= 12) return 8;
-    } else if (volume_id == 25) { // OT forward
-      if (layer_id <= 4) return 9;  // most "left"most: smallest |z|
-      else if (layer_id <= 8) return 10;
-      else if (layer_id <= 12) return 11;
-    } else {
-      std::cerr << "Unknown volume_id: " << volume_id << std::endl;
-      // return maximum unsigned to indicate invalid
-      return std::numeric_limits<unsigned>::max(); // invalid
-    }
-    return std::numeric_limits<unsigned>::max(); // not a disc hit
-  }
-
-  IDs disc_idx_to_ID(unsigned disc_idx) {
-    if (disc_idx <= 5) return {0, disc_idx};  // backward
-    else if (disc_idx <= 11) return {1, disc_idx - 6};  // forward
-    else {
-      std::cerr << "Invalid disc_idx: " << disc_idx << std::endl;
-      return {std::numeric_limits<unsigned>::max(),
-              std::numeric_limits<unsigned>::max()}; // invalid
-    }
-  }
-
-  bool hit_measurement_match(Pos hit_pos, Pos meas_pos,
-                             double tol=0.1) {  // need some tolerance in matching: 100um now
-    double dx = hit_pos.first - meas_pos.first;
-    double dy = hit_pos.second - meas_pos.second;
-    return dx*dx < tol*tol && dy*dy < tol*tol;
-
-  }
 
   for (int i = 0; i < nDiscs; i++) {
     hHitsXY_bwd[i] = new TH2F("hHitsXY_" + bwdLabels[i],
@@ -127,7 +128,7 @@ void disc_coverage(
   unsigned hit_eventId, hit_particle_idx, hit_layer_id, hit_volume_id;
   float hit_x, hit_y;
   // measurement branches
-  unsigned meas_eventId, meas_particle_idx, meas_layer_id, meas_volume_id;
+  int meas_eventId, meas_particle_idx, meas_layer_id, meas_volume_id;
   float meas_true_x, meas_true_y;
 
   // maps to fill and clear after each file
@@ -172,10 +173,22 @@ void disc_coverage(
     for (Long64_t i = 0; i < nHits; i++) {
       tHits->GetEntry(i);
       unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id);
-      hitPosMap[hit_eventId][hit_particle_idx][disc_idx] =
-        std::make_pair(hit_x, hit_y);
+      if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc hit, ignore
 
-      auto& [disc_side, layer_in_side] = disc_idx_to_ID(disc_idx);
+      // check if there already exist hits before adding another
+      auto itDiscIdx = hitPosMap[hit_eventId][hit_particle_idx].find(disc_idx);
+      if (itDiscIdx == hitPosMap[hit_eventId][hit_particle_idx].end()) {
+        // no hits for this disc yet: add new entry
+        hitPosMap[hit_eventId][hit_particle_idx][disc_idx] =
+          {std::make_pair(hit_x, hit_y)};
+      } else {
+        // already hits for this disc: add to vector
+        hitPosMap[hit_eventId][hit_particle_idx][disc_idx].
+          push_back(std::make_pair(hit_x, hit_y));
+      }
+
+      IDs discIDs = disc_idx_to_ID(disc_idx);
+      auto [disc_side, layer_in_side] = discIDs;
       if (disc_side == 0) { // backward
         hHitsXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
       } else if (disc_side == 1) { // forward
@@ -188,10 +201,22 @@ void disc_coverage(
     for (Long64_t i = 0; i < nMeas; i++) {
       tMeas->GetEntry(i);
       unsigned disc_idx = volume_and_layer_id_to_disc_idx(meas_volume_id, meas_layer_id);
-      measPosMap[meas_eventId][meas_particle_idx][disc_idx] =
-        std::make_pair(meas_true_x, meas_true_y);
-      
-      auto& [disc_side, layer_in_side] = disc_idx_to_ID(disc_idx);
+      if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc measurement, ignore
+
+      // check if there already exist measurements before adding another
+      auto itDiscIdx = measPosMap[meas_eventId][meas_particle_idx].find(disc_idx);
+      if (itDiscIdx == measPosMap[meas_eventId][meas_particle_idx].end()) {
+        // no measurements for this disc yet: add new entry
+        measPosMap[meas_eventId][meas_particle_idx][disc_idx] =
+          {std::make_pair(meas_true_x, meas_true_y)};
+      } else {
+        // already measurements for this disc: add to vector
+        measPosMap[meas_eventId][meas_particle_idx][disc_idx].
+          push_back(std::make_pair(meas_true_x, meas_true_y));
+      }
+
+      IDs discIDs = disc_idx_to_ID(disc_idx);
+      auto [disc_side, layer_in_side] = discIDs;
       if (disc_side == 0) { // backward
         hMeasXY_bwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
       } else if (disc_side == 1) { // forward
@@ -208,7 +233,8 @@ void disc_coverage(
         // no measurement for this event: all hits are misses (this should NEVER happen, but just in case)
         for (const auto& [particleIdx, particleHitLayers] : particlesInEvent) {
           for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
-            auto& [disc_side, layer_in_side] = disc_idx_to_ID(disc_idx);
+            IDs discIDs = disc_idx_to_ID(disc_idx);
+            auto [disc_side, layer_in_side] = discIDs;
             for (const auto& hit_pos : hit_positions) {
               const auto& [hit_x, hit_y] = hit_pos;
               float phi = std::atan2(hit_y, hit_x);
@@ -232,7 +258,8 @@ void disc_coverage(
           // -------------------------------- NO MEASUREMENTS FOR THIS PARTICLE -------------------------------
           // no measurements for this particle: all hits are misses (should almost never happen)
           for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
-            auto& [disc_side, layer_in_side] = disc_idx_to_ID(disc_idx);
+            IDs discIDs = disc_idx_to_ID(disc_idx);
+            auto [disc_side, layer_in_side] = discIDs;
             for (const auto& hit_pos : hit_positions) {
               const auto& [hit_x, hit_y] = hit_pos;
               float phi = std::atan2(hit_y, hit_x);
@@ -252,7 +279,8 @@ void disc_coverage(
         auto& measLayers = itMeasParticle->second;
         for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
           auto itMeasDiscIdx = measLayers.find(disc_idx);
-          auto& [disc_side, layer_in_side] = disc_idx_to_ID(disc_idx);
+          IDs discIDs = disc_idx_to_ID(disc_idx);
+          auto [disc_side, layer_in_side] = discIDs;
           if (itMeasDiscIdx == measLayers.end()) {
             // -------------------------------- THIS LAYER HAS NO MEASUREMENT -------------------------------
             // no measurement for this layer: all hits are misses (somewhat rare)
@@ -318,7 +346,7 @@ void disc_coverage(
   // --- Draw Canvases ---
   // all on different canvases, sorted by path: efficiencies into figures/geo/efficiency_layer
   // hit maps into figures/geo/occupancy_layer
-  TString occupancyoOutDir = geo_studies_base + "figures/geo/occupancy_layer/";
+  TString occupancyOutDir = geo_studies_base + "figures/geo/occupancy_layer/";
   TString efficiencyOutDir = geo_studies_base + "figures/geo/efficiency_layer/";
   for (int i = 0; i < nDiscs; i++) {
     // backward
