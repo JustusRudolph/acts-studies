@@ -80,7 +80,7 @@ void disc_coverage(
                                                   "fwd_disc_3", "fwd_disc_4", "fwd_disc_5"};
 
   std::array<float, nDiscs> xyMax = {400.0, 400.0, 400.0, 750.0, 750.0, 750.0};  // mm
-  const int nXYBins = 200;
+  const int nXYBins = 500;
 
   // --- Histograms ---
   // xy hit positions that reach measurements
@@ -119,6 +119,8 @@ void disc_coverage(
 
     hHitsXY_bwd[i]->SetStats(false);
     hHitsXY_fwd[i]->SetStats(false);
+    hMeasXY_bwd[i]->SetStats(false);
+    hMeasXY_fwd[i]->SetStats(false);
     hMissXY_bwd[i]->SetStats(false);
     hMissXY_fwd[i]->SetStats(false);
   }
@@ -218,9 +220,10 @@ void disc_coverage(
       }
       nHitsFilled++;
     }
-    if (debugLevel > 0) std::cout << "DEBUG (0): hits loop done, hitPosMap has "
-                                  << hitPosMap.size() << " events with " << nHitsFilled
-                                  << " hits filled." << std::flush << std::endl;
+    if (debugLevel > 0)
+      std::cout << "DEBUG (0): hits loop done, hitPosMap has "
+                << hitPosMap.size() << " events with " << nHitsFilled
+                << " hits filled." << std::flush << std::endl;
 
     // Loop over measurements and fill maps
     Long64_t nMeas = tMeas->GetEntries();
@@ -275,9 +278,10 @@ void disc_coverage(
       nMeasFilled++;
     }  // loop over measurements
 
-    if (debugLevel > 0) std::cout << "DEBUG (0): meas loop done, measPosMap has "
-                         << measPosMap.size() << " events with " << nMeasFilled <<
-                         " measurements filled." << std::flush << std::endl;
+    if (debugLevel > 0)
+      std::cout << "DEBUG (0): meas loop done, measPosMap has "
+                << measPosMap.size() << " events with " << nMeasFilled
+                << " measurements filled." << std::flush << std::endl;
 
     // loop over events and particles in hitPosMap, check if they have measurement, and fill histograms
     if (debugLevel > 0) std::cout << "DEBUG (0): starting match loop over "
@@ -447,7 +451,7 @@ void disc_coverage(
     gPad->Update();
     hEffPhi_bwd[i]->GetPaintedGraph()->GetXaxis()->SetTitle("#phi (rad)");
     hEffPhi_bwd[i]->GetPaintedGraph()->GetYaxis()->SetTitle("Efficiency");
-    hEffPhi_bwd[i]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0.8, 1.05);
+    hEffPhi_bwd[i]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0.95, 1.02);
     gPad->Update();
     c_eff_bwd->SaveAs(efficiencyOutDir + "eff_phi_" + bwdLabels[i] + ".pdf");
 
@@ -471,7 +475,7 @@ void disc_coverage(
     gPad->Update();
     hEffPhi_fwd[i]->GetPaintedGraph()->GetXaxis()->SetTitle("#phi (rad)");
     hEffPhi_fwd[i]->GetPaintedGraph()->GetYaxis()->SetTitle("Efficiency");
-    hEffPhi_fwd[i]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0.8, 1.05);
+    hEffPhi_fwd[i]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0.95, 1.02);
     gPad->Update();
     c_eff_fwd->SaveAs(efficiencyOutDir + "eff_phi_" + fwdLabels[i] + ".pdf");
   }
