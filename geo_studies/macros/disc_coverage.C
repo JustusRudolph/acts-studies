@@ -64,7 +64,8 @@ bool hit_measurement_match(Pos hit_pos, Pos meas_pos,
 
 void disc_coverage(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
-  const bool onSTBC=false)
+  const bool onSTBC=false,
+  const unsigned debugLevel=0)  // 0 nothing, 1 some, 2 many, 3 all debug prints
 {
   const TString base             = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
   const TString actso2_output_base = base + "alice/ACTSO2/output/";
@@ -170,9 +171,15 @@ void disc_coverage(
 
     // Loop over hits and fill maps
     Long64_t nHits = tHits->GetEntries();
-    std::cout << "DEBUG: starting hits loop, nHits=" << nHits << std::flush << std::endl;
+    if (debugLevel > 0) std::cout << "DEBUG (1): starting hits loop, nHits="
+                         << nHits << std::flush << std::endl;
     for (Long64_t i = 0; i < nHits; i++) {
-      if (i % 10000 == 0) std::cout << "DEBUG: hits entry " << i << "/" << nHits << std::flush << std::endl;
+      if (i % 10000 == 0  && debugLevel > 2)
+        std::cout << "DEBUG (3): hits entry " << i << "/"
+                  << nHits << std::flush << std::endl;
+      else if (i % 100000 == 0 && debugLevel > 1)
+        std::cout << "DEBUG (2): hits entry " << i << "/"
+                  << nHits << std::flush << std::endl;
       tHits->GetEntry(i);
       unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id);
       if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc hit, ignore
@@ -180,10 +187,11 @@ void disc_coverage(
       IDs discIDs = disc_idx_to_ID(disc_idx);
       auto [disc_side, layer_in_side] = discIDs;
       if (layer_in_side >= (unsigned)nDiscs) {
-        std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
-                  << " out of range at hits entry " << i
-                  << " vol=" << hit_volume_id << " layer=" << hit_layer_id
-                  << " disc_idx=" << disc_idx << std::flush << std::endl;
+        if (debugLevel > 0)
+          std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                    << " out of range at hits entry " << i
+                    << " vol=" << hit_volume_id << " layer=" << hit_layer_id
+                    << " disc_idx=" << disc_idx << std::flush << std::endl;
         continue;
       }
 
@@ -205,13 +213,20 @@ void disc_coverage(
         hHitsXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
       }
     }
-    std::cout << "DEBUG: hits loop done, hitPosMap has " << hitPosMap.size() << " events" << std::flush << std::endl;
+    if (debugLevel > 0) std::cout << "DEBUG (0): hits loop done, hitPosMap has "
+                                  << hitPosMap.size() << " events" << std::flush << std::endl;
 
     // Loop over measurements and fill maps
     Long64_t nMeas = tMeas->GetEntries();
-    std::cout << "DEBUG: starting measurements loop, nMeas=" << nMeas << std::flush << std::endl;
+    if (debugLevel > 0) std::cout << "DEBUG (0): starting measurements loop, nMeas="
+                                  << nMeas << std::flush << std::endl;
     for (Long64_t i = 0; i < nMeas; i++) {
-      if (i % 10000 == 0) std::cout << "DEBUG: meas entry " << i << "/" << nMeas << std::flush << std::endl;
+      if (debugLevel > 2)
+        std::cout << "DEBUG (3): meas entry " << i << "/"
+                  << nMeas << std::flush << std::endl;
+      else if (i % 100000 == 0 && debugLevel > 1)
+        std::cout << "DEBUG (2): meas entry " << i << "/"
+                  << nMeas << std::flush << std::endl;
       tMeas->GetEntry(i);
       unsigned disc_idx = volume_and_layer_id_to_disc_idx(meas_volume_id, meas_layer_id);
       if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc measurement, ignore
@@ -219,10 +234,11 @@ void disc_coverage(
       IDs discIDs = disc_idx_to_ID(disc_idx);
       auto [disc_side, layer_in_side] = discIDs;
       if (layer_in_side >= (unsigned)nDiscs) {
-        std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
-                  << " out of range at meas entry " << i
-                  << " vol=" << meas_volume_id << " layer=" << meas_layer_id
-                  << " disc_idx=" << disc_idx << std::flush << std::endl;
+        if (debugLevel > 0)
+          std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                    << " out of range at meas entry " << i
+                    << " vol=" << meas_volume_id << " layer=" << meas_layer_id
+                    << " disc_idx=" << disc_idx << std::flush << std::endl;
         continue;
       }
 
@@ -242,14 +258,20 @@ void disc_coverage(
         hMeasXY_fwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
       }
     }
-    std::cout << "DEBUG: meas loop done, measPosMap has " << measPosMap.size() << " events" << std::flush << std::endl;
+    if (debugLevel > 0) std::cout << "DEBUG (0): meas loop done, measPosMap has "
+                         << measPosMap.size() << " events" << std::flush << std::endl;
 
     // loop over events and particles in hitPosMap, check if they have measurement, and fill histograms
-    std::cout << "DEBUG: starting match loop over " << hitPosMap.size() << " events" << std::flush << std::endl;
+    if (debugLevel > 0) std::cout << "DEBUG (0): starting match loop over "
+                                  << hitPosMap.size() << " events" << std::flush << std::endl;
     unsigned matchLoopEventCount = 0;
     for (const auto& [eventId, particlesInEvent] : hitPosMap) {
-      if (matchLoopEventCount % 100 == 0)
-        std::cout << "DEBUG: match loop event " << matchLoopEventCount << " (eventId=" << eventId << ")" << std::flush << std::endl;
+      if (matchLoopEventCount % 1000 == 0 && debugLevel > 2)
+        std::cout << "DEBUG (3): match loop event " << matchLoopEventCount
+                  << " (eventId=" << eventId << ")" << std::flush << std::endl;
+      else if (matchLoopEventCount % 10000 == 0 && debugLevel > 1)
+        std::cout << "DEBUG (2): match loop event " << matchLoopEventCount
+                  << " (eventId=" << eventId << ")" << std::flush << std::endl;
       matchLoopEventCount++;
       auto itMeasEvent = measPosMap.find(eventId);
 
@@ -306,10 +328,11 @@ void disc_coverage(
           IDs discIDs = disc_idx_to_ID(disc_idx);
           auto [disc_side, layer_in_side] = discIDs;
           if (layer_in_side >= (unsigned)nDiscs) {
-            std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
-                      << " out of range in match loop, eventId=" << eventId
-                      << " particleIdx=" << particleIdx << " disc_idx=" << disc_idx
-                      << std::flush << std::endl;
+            if (debugLevel > 0)
+              std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                        << " out of range in match loop, eventId=" << eventId
+                        << " particleIdx=" << particleIdx << " disc_idx=" << disc_idx
+                        << std::flush << std::endl;
             continue;
           }
           if (itMeasDiscIdx == measLayers.end()) {
@@ -365,8 +388,7 @@ void disc_coverage(
         }  // loop over layers of particle
       }  // loop over particles in event
     }  // loop over events
-
-    std::cout << "DEBUG: match loop done" << std::flush << std::endl;
+    if (debugLevel > 0) std::cout << "DEBUG (0): match loop done" << std::flush << std::endl;
 
     fHits->Close();
     fMeas->Close();
@@ -374,10 +396,12 @@ void disc_coverage(
     // clear maps for next file
     hitPosMap.clear();
     measPosMap.clear();
-    std::cout << "DEBUG: maps cleared, moving to next file" << std::flush << std::endl;
+    if (debugLevel > 0) std::cout << "DEBUG (0): maps cleared, moving to next file"
+                                  << std::flush << std::endl;
   }
 
-  std::cout << "DEBUG: all files processed, starting drawing" << std::flush << std::endl;
+  if (debugLevel > 0) std::cout << "DEBUG (0): all files processed, starting drawing"
+                                << std::flush << std::endl;
 
   // --- Draw Canvases ---
   // all on different canvases, sorted by path: efficiencies into figures/geo/efficiency_layer
