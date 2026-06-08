@@ -79,8 +79,8 @@ void disc_coverage(
   const std::array<TString, nDiscs> fwdLabels = {"fwd_disc_0", "fwd_disc_1", "fwd_disc_2",
                                                   "fwd_disc_3", "fwd_disc_4", "fwd_disc_5"};
 
-  const float xyMax = 1500.0;  // mm
-  const int   xyBins = 200;
+  std::array<float, nDiscs> xyMax = {400.0, 400.0, 400.0, 750.0, 750.0, 750.0};  // mm
+  const int nXYBins = 200;
 
   // --- Histograms ---
   // xy hit positions that reach measurements
@@ -93,22 +93,22 @@ void disc_coverage(
   for (int i = 0; i < nDiscs; i++) {
     hHitsXY_bwd[i] = new TH2F("hHitsXY_" + bwdLabels[i],
                                bwdLabels[i] + " full hitmap;x (mm);y (mm)",
-                               xyBins, -xyMax, xyMax, xyBins, -xyMax, xyMax);
+                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
     hHitsXY_fwd[i] = new TH2F("hHitsXY_" + fwdLabels[i],
                                fwdLabels[i] + " full hitmap;x (mm);y (mm)",
-                               xyBins, -xyMax, xyMax, xyBins, -xyMax, xyMax);
+                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
     hMeasXY_bwd[i] = new TH2F("hMeasXY_" + bwdLabels[i],
                                bwdLabels[i] + " measurement positions;x (mm);y (mm)",
-                               xyBins, -xyMax, xyMax, xyBins, -xyMax, xyMax);
+                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
     hMeasXY_fwd[i] = new TH2F("hMeasXY_" + fwdLabels[i],
                                fwdLabels[i] + " measurement positions;x (mm);y (mm)",
-                               xyBins, -xyMax, xyMax, xyBins, -xyMax, xyMax);
+                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
     hMissXY_bwd[i] = new TH2F("hMissXY_" + bwdLabels[i],
                                bwdLabels[i] + " hits not becoming measurements;x (mm);y (mm)",
-                               xyBins, -xyMax, xyMax, xyBins, -xyMax, xyMax);
+                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
     hMissXY_fwd[i] = new TH2F("hMissXY_" + fwdLabels[i],
                                fwdLabels[i] + " hits not becoming measurements;x (mm);y (mm)",
-                               xyBins, -xyMax, xyMax, xyBins, -xyMax, xyMax);
+                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
 
     hEffPhi_bwd[i] = new TEfficiency("hEffPhi_" + bwdLabels[i],
                                      bwdLabels[i] + " efficiency vs #phi;#phi (rad);Efficiency",
@@ -129,10 +129,10 @@ void disc_coverage(
   unsigned hit_eventId, hit_particle_idx, hit_layer_id, hit_volume_id;
   float hit_x, hit_y;
   // measurement branches
-  unsigned meas_eventId, meas_layer_id, meas_volume_id;
+  int meas_eventId, meas_layer_id, meas_volume_id;
   /// can be several particles per measurement (clustered hits), with pgun it's rarely not
   /// exactly one, and with primary single pgun sims, it can only be one.
-  std::vector<unsigned>* meas_particle_idx;
+  std::vector<unsigned>* meas_particle_idx = nullptr;
   float meas_true_x, meas_true_y;
 
   // maps to fill and clear after each file
@@ -174,6 +174,7 @@ void disc_coverage(
 
     // Loop over hits and fill maps
     Long64_t nHits = tHits->GetEntries();
+    unsigned nHitsFilled = 0;
     if (debugLevel > 0) std::cout << "DEBUG (1): starting hits loop, nHits="
                          << nHits << std::flush << std::endl;
     for (Long64_t i = 0; i < nHits; i++) {
@@ -215,12 +216,15 @@ void disc_coverage(
       } else if (disc_side == 1) { // forward
         hHitsXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
       }
+      nHitsFilled++;
     }
     if (debugLevel > 0) std::cout << "DEBUG (0): hits loop done, hitPosMap has "
-                                  << hitPosMap.size() << " events" << std::flush << std::endl;
+                                  << hitPosMap.size() << " events with " << nHitsFilled
+                                  << " hits filled." << std::flush << std::endl;
 
     // Loop over measurements and fill maps
     Long64_t nMeas = tMeas->GetEntries();
+    unsigned nMeasFilled = 0;
     if (debugLevel > 0) std::cout << "DEBUG (0): starting measurements loop, nMeas="
                                   << nMeas << std::flush << std::endl;
     for (Long64_t i = 0; i < nMeas; i++) {
@@ -258,14 +262,22 @@ void disc_coverage(
           push_back(std::make_pair(meas_true_x, meas_true_y));
       }
 
+      if (debugLevel > 2)
+        std::cout << "DEBUG (3): meas entry " << i << " eventId=" << meas_eventId
+                  << " part_idx=" << part_idx << " disc_idx=" << disc_idx
+                  << " meas_true_x=" << meas_true_x << " meas_true_y=" << meas_true_y
+                  << std::flush << std::endl;
       if (disc_side == 0) { // backward
         hMeasXY_bwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
       } else if (disc_side == 1) { // forward
         hMeasXY_fwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
       }
-    }
+      nMeasFilled++;
+    }  // loop over measurements
+
     if (debugLevel > 0) std::cout << "DEBUG (0): meas loop done, measPosMap has "
-                         << measPosMap.size() << " events" << std::flush << std::endl;
+                         << measPosMap.size() << " events with " << nMeasFilled <<
+                         " measurements filled." << std::flush << std::endl;
 
     // loop over events and particles in hitPosMap, check if they have measurement, and fill histograms
     if (debugLevel > 0) std::cout << "DEBUG (0): starting match loop over "
