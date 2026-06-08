@@ -129,7 +129,10 @@ void disc_coverage(
   unsigned hit_eventId, hit_particle_idx, hit_layer_id, hit_volume_id;
   float hit_x, hit_y;
   // measurement branches
-  int meas_eventId, meas_particle_idx, meas_layer_id, meas_volume_id;
+  unsigned meas_eventId, meas_layer_id, meas_volume_id;
+  /// can be several particles per measurement (clustered hits), with pgun it's rarely not
+  /// exactly one, and with primary single pgun sims, it can only be one.
+  std::vector<unsigned>* meas_particle_idx;
   float meas_true_x, meas_true_y;
 
   // maps to fill and clear after each file
@@ -229,6 +232,9 @@ void disc_coverage(
                   << nMeas << std::flush << std::endl;
       tMeas->GetEntry(i);
       unsigned disc_idx = volume_and_layer_id_to_disc_idx(meas_volume_id, meas_layer_id);
+      if (meas_particle_idx->size() == 0) continue; // no associated particle, ignore (shouldn't happen, just safety check)
+      unsigned part_idx = meas_particle_idx->front();
+
       if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc measurement, ignore
 
       IDs discIDs = disc_idx_to_ID(disc_idx);
@@ -243,12 +249,12 @@ void disc_coverage(
       }
 
       // check if there already exist measurements before adding another
-      auto itDiscIdx = measPosMap[meas_eventId][meas_particle_idx].find(disc_idx);
-      if (itDiscIdx == measPosMap[meas_eventId][meas_particle_idx].end()) {
-        measPosMap[meas_eventId][meas_particle_idx][disc_idx] =
+      auto itDiscIdx = measPosMap[meas_eventId][part_idx].find(disc_idx);
+      if (itDiscIdx == measPosMap[meas_eventId][part_idx].end()) {
+        measPosMap[meas_eventId][part_idx][disc_idx] =
           {std::make_pair(meas_true_x, meas_true_y)};
       } else {
-        measPosMap[meas_eventId][meas_particle_idx][disc_idx].
+        measPosMap[meas_eventId][part_idx][disc_idx].
           push_back(std::make_pair(meas_true_x, meas_true_y));
       }
 
