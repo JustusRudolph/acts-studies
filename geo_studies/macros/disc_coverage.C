@@ -12,7 +12,7 @@
 #include <unordered_map>
 
 // helper functions
-using Pos = std::pair<float, float>;
+using Pos = std::array<float, 3>;  // x, y, z
 using Positions = std::vector<Pos>;
 using IDs = std::pair<unsigned, unsigned>;  // bwd/fwd, disc idx
 using HitPosMap = std::unordered_map< /* event -> particle idx -> ID -> list of (x,y) in layer */
@@ -55,16 +55,23 @@ IDs disc_idx_to_ID(unsigned disc_idx) {
 }
 
 bool hit_measurement_match(Pos hit_pos, Pos meas_pos,
-                          double tol=0.1) {  // need some tolerance in matching: 100um now
-  double dx = hit_pos.first - meas_pos.first;
-  double dy = hit_pos.second - meas_pos.second;
-  return dx*dx < tol*tol && dy*dy < tol*tol;
-
+                           bool include_z = true,
+                           double tol=0.1) {  // need some tolerance in matching: 100um now
+  double dx = hit_pos[0] - meas_pos[0];
+  double dy = hit_pos[1] - meas_pos[1];
+  double dz = hit_pos[2] - meas_pos[2];
+  bool xy_match = dx*dx < tol*tol && dy*dy < tol*tol;
+  if (include_z) {
+    return xy_match && dz*dz < tol*tol;
+  } else {
+    return xy_match;
+  }
 }
 
 void disc_coverage(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool onSTBC=false,
+  const bool runWithMeasurements=false,
   const unsigned debugLevel=0)  // 0 nothing, 1 some, 2 many, 3 all debug prints
 {
   const TString base             = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
@@ -76,46 +83,70 @@ void disc_coverage(
   constexpr int nDiscs = 6;
   const std::array<TString, nDiscs> bwdLabels = {"bwd_disc_0", "bwd_disc_1", "bwd_disc_2",
                                                   "bwd_disc_3", "bwd_disc_4", "bwd_disc_5"};
+  const std::array<TString, nDiscs> bwdLabelsInPlot =
+    {"Backward disc 0 (ML)", "Backward disc 1 (ML)", "Backward disc 2 (ML)",
+     "Backward disc 3 (OT)", "Backward disc 4 (OT)", "Backward disc 5 (OT)"};
   const std::array<TString, nDiscs> fwdLabels = {"fwd_disc_0", "fwd_disc_1", "fwd_disc_2",
                                                   "fwd_disc_3", "fwd_disc_4", "fwd_disc_5"};
+  const std::array<TString, nDiscs> fwdLabelsInPlot =
+    {"Forward disc 0 (ML)", "Forward disc 1 (ML)", "Forward disc 2 (ML)",
+     "Forward disc 3 (OT)", "Forward disc 4 (OT)", "Forward disc 5 (OT)"};
 
   std::array<float, nDiscs> xyMax = {400.0, 400.0, 400.0, 750.0, 750.0, 750.0};  // mm
-  const int nXYBins = 500;
+  std::array<float, nDiscs> rMinNominal = {100.0, 100.0, 100.0, 200.0, 200.0, 200.0};  // mm
+  std::array<float, nDiscs> rMaxNominal = {350.0, 350.0, 350.0, 680.0, 680.0, 680.0};  // mm
+  const std::array<int, nDiscs> nXYBins = {800, 800, 800, 1500, 1500, 1500};  // 1mm bins
 
   // --- Histograms ---
   // xy hit positions that reach measurements
   std::array<TH2F*, nDiscs> hHitsXY_bwd, hHitsXY_fwd, hMeasXY_bwd, hMeasXY_fwd;
   // xy hit positions that do NOT reach measurements
   std::array<TH2F*, nDiscs> hMissXY_bwd, hMissXY_fwd;
-  // efficiency vs phi
-  std::array<TEfficiency*, nDiscs> hEffPhi_bwd, hEffPhi_fwd;
+  // nHits wrt x and r
+  std::array<TH1D*, nDiscs> hnHits_wrtX_bwd, hnHits_wrtX_fwd,
+                            hnHits_wrtX_Scaled_bwd, hnHits_wrtX_Scaled_fwd,
+                            hnHits_wrtR_bwd, hnHits_wrtR_fwd;
 
   for (int i = 0; i < nDiscs; i++) {
     hHitsXY_bwd[i] = new TH2F("hHitsXY_" + bwdLabels[i],
                                bwdLabels[i] + " full hitmap;x (mm);y (mm)",
-                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
+                               nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
     hHitsXY_fwd[i] = new TH2F("hHitsXY_" + fwdLabels[i],
                                fwdLabels[i] + " full hitmap;x (mm);y (mm)",
-                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
+                               nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
     hMeasXY_bwd[i] = new TH2F("hMeasXY_" + bwdLabels[i],
                                bwdLabels[i] + " measurement positions;x (mm);y (mm)",
-                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
+                               nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
     hMeasXY_fwd[i] = new TH2F("hMeasXY_" + fwdLabels[i],
                                fwdLabels[i] + " measurement positions;x (mm);y (mm)",
-                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
+                               nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
     hMissXY_bwd[i] = new TH2F("hMissXY_" + bwdLabels[i],
                                bwdLabels[i] + " hits not becoming measurements;x (mm);y (mm)",
-                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
+                               nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
     hMissXY_fwd[i] = new TH2F("hMissXY_" + fwdLabels[i],
                                fwdLabels[i] + " hits not becoming measurements;x (mm);y (mm)",
-                               nXYBins, -xyMax[i], xyMax[i], nXYBins, -xyMax[i], xyMax[i]);
+                               nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
 
-    hEffPhi_bwd[i] = new TEfficiency("hEffPhi_" + bwdLabels[i],
-                                     bwdLabels[i] + " efficiency vs #phi;#phi (rad);Efficiency",
-                                     100, -TMath::Pi(), TMath::Pi());
-    hEffPhi_fwd[i] = new TEfficiency("hEffPhi_" + fwdLabels[i],
-                                     fwdLabels[i] + " efficiency vs #phi;#phi (rad);Efficiency",
-                                     100, -TMath::Pi(), TMath::Pi());
+    hnHits_wrtX_bwd[i] = new TH1D("hnHits_wrtX_" + bwdLabels[i],
+                                  bwdLabels[i] + " number of hits vs x;x (mm);n hits",
+                                  nXYBins[i], -xyMax[i], xyMax[i]);
+    hnHits_wrtX_fwd[i] = new TH1D("hnHits_wrtX_" + fwdLabels[i],
+                                  fwdLabels[i] + " number of hits vs x;x (mm);n hits",
+                                  nXYBins[i], -xyMax[i], xyMax[i]);
+    hnHits_wrtX_Scaled_bwd[i] =
+      new TH1D("hnHits_wrtX_Scaled_" + bwdLabels[i],
+               bwdLabels[i] + " number of hits vs x;x (mm);n hits",
+               nXYBins[i], -xyMax[i], xyMax[i]);
+    hnHits_wrtX_Scaled_fwd[i] =
+      new TH1D("hnHits_wrtX_Scaled_" + fwdLabels[i],
+               fwdLabels[i] + " number of hits vs x;x (mm);n hits",
+               nXYBins[i], -xyMax[i], xyMax[i]);
+    hnHits_wrtR_bwd[i] = new TH1D("hnHits_wrtR_" + bwdLabels[i],
+                                  bwdLabels[i] + " number of hits vs r;r (mm);n hits",
+                                  nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+    hnHits_wrtR_fwd[i] = new TH1D("hnHits_wrtR_" + fwdLabels[i],
+                                  fwdLabels[i] + " number of hits vs r;r (mm);n hits",
+                                  nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
 
     hHitsXY_bwd[i]->SetStats(false);
     hHitsXY_fwd[i]->SetStats(false);
@@ -129,13 +160,13 @@ void disc_coverage(
   // branch variables
   // hit branches
   unsigned hit_eventId, hit_particle_idx, hit_layer_id, hit_volume_id;
-  float hit_x, hit_y;
+  float hit_x, hit_y, hit_z;
   // measurement branches
   int meas_eventId, meas_layer_id, meas_volume_id;
   /// can be several particles per measurement (clustered hits), with pgun it's rarely not
   /// exactly one, and with primary single pgun sims, it can only be one.
   std::vector<unsigned>* meas_particle_idx = nullptr;
-  float meas_true_x, meas_true_y;
+  float meas_true_x, meas_true_y, meas_true_z;
 
   // maps to fill and clear after each file
   HitPosMap hitPosMap;
@@ -166,6 +197,7 @@ void disc_coverage(
     tHits->SetBranchAddress("volume_id", &hit_volume_id);
     tHits->SetBranchAddress("tx", &hit_x);
     tHits->SetBranchAddress("ty", &hit_y);
+    tHits->SetBranchAddress("tz", &hit_z);
     // measurement branches
     tMeas->SetBranchAddress("event_nr", &meas_eventId);
     tMeas->SetBranchAddress("particles_particle", &meas_particle_idx);
@@ -173,6 +205,7 @@ void disc_coverage(
     tMeas->SetBranchAddress("volume_id", &meas_volume_id);
     tMeas->SetBranchAddress("true_x", &meas_true_x);
     tMeas->SetBranchAddress("true_y", &meas_true_y);
+    tMeas->SetBranchAddress("true_z", &meas_true_z);
 
     // Loop over hits and fill maps
     Long64_t nHits = tHits->GetEntries();
@@ -206,17 +239,21 @@ void disc_coverage(
       if (itDiscIdx == hitPosMap[hit_eventId][hit_particle_idx].end()) {
         // no hits for this disc yet: add new entry
         hitPosMap[hit_eventId][hit_particle_idx][disc_idx] =
-          {std::make_pair(hit_x, hit_y)};
+          {std::array<float, 3>{hit_x, hit_y, hit_z}};
       } else {
         // already hits for this disc: add to vector
         hitPosMap[hit_eventId][hit_particle_idx][disc_idx].
-          push_back(std::make_pair(hit_x, hit_y));
+          push_back(std::array<float, 3>{hit_x, hit_y, hit_z});
       }
 
       if (disc_side == 0) { // backward
         hHitsXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
+        hnHits_wrtX_bwd[layer_in_side]->Fill(hit_x);
+        hnHits_wrtR_bwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
       } else if (disc_side == 1) { // forward
         hHitsXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
+        hnHits_wrtX_fwd[layer_in_side]->Fill(hit_x);
+        hnHits_wrtR_fwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
       }
       nHitsFilled++;
     }
@@ -225,192 +262,184 @@ void disc_coverage(
                 << hitPosMap.size() << " events with " << nHitsFilled
                 << " hits filled." << std::flush << std::endl;
 
-    // Loop over measurements and fill maps
-    Long64_t nMeas = tMeas->GetEntries();
-    unsigned nMeasFilled = 0;
-    if (debugLevel > 0) std::cout << "DEBUG (0): starting measurements loop, nMeas="
-                                  << nMeas << std::flush << std::endl;
-    for (Long64_t i = 0; i < nMeas; i++) {
-      if (debugLevel > 2)
-        std::cout << "DEBUG (3): meas entry " << i << "/"
-                  << nMeas << std::flush << std::endl;
-      else if (i % 100000 == 0 && debugLevel > 1)
-        std::cout << "DEBUG (2): meas entry " << i << "/"
-                  << nMeas << std::flush << std::endl;
-      tMeas->GetEntry(i);
-      unsigned disc_idx = volume_and_layer_id_to_disc_idx(meas_volume_id, meas_layer_id);
-      if (meas_particle_idx->size() == 0) continue; // no associated particle, ignore (shouldn't happen, just safety check)
-      unsigned part_idx = meas_particle_idx->front();
+    if (runWithMeasurements) {  // comparison to measurements only if asked for
+      // Loop over measurements and fill maps
+      Long64_t nMeas = tMeas->GetEntries();
+      unsigned nMeasFilled = 0;
+      if (debugLevel > 0) std::cout << "DEBUG (0): starting measurements loop, nMeas="
+                                    << nMeas << std::flush << std::endl;
+      for (Long64_t i = 0; i < nMeas; i++) {
+        if (debugLevel > 2)
+          std::cout << "DEBUG (3): meas entry " << i << "/"
+                    << nMeas << std::flush << std::endl;
+        else if (i % 100000 == 0 && debugLevel > 1)
+          std::cout << "DEBUG (2): meas entry " << i << "/"
+                    << nMeas << std::flush << std::endl;
+        tMeas->GetEntry(i);
+        unsigned disc_idx = volume_and_layer_id_to_disc_idx(meas_volume_id, meas_layer_id);
+        if (meas_particle_idx->size() == 0) continue; // no associated particle, ignore (shouldn't happen, just safety check)
+        unsigned part_idx = meas_particle_idx->front();
 
-      if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc measurement, ignore
+        if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc measurement, ignore
 
-      IDs discIDs = disc_idx_to_ID(disc_idx);
-      auto [disc_side, layer_in_side] = discIDs;
-      if (layer_in_side >= (unsigned)nDiscs) {
-        if (debugLevel > 0)
-          std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
-                    << " out of range at meas entry " << i
-                    << " vol=" << meas_volume_id << " layer=" << meas_layer_id
-                    << " disc_idx=" << disc_idx << std::flush << std::endl;
-        continue;
-      }
+        IDs discIDs = disc_idx_to_ID(disc_idx);
+        auto [disc_side, layer_in_side] = discIDs;
+        if (layer_in_side >= (unsigned)nDiscs) {
+          if (debugLevel > 0)
+            std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                      << " out of range at meas entry " << i
+                      << " vol=" << meas_volume_id << " layer=" << meas_layer_id
+                      << " disc_idx=" << disc_idx << std::flush << std::endl;
+          continue;
+        }
 
-      // check if there already exist measurements before adding another
-      auto itDiscIdx = measPosMap[meas_eventId][part_idx].find(disc_idx);
-      if (itDiscIdx == measPosMap[meas_eventId][part_idx].end()) {
-        measPosMap[meas_eventId][part_idx][disc_idx] =
-          {std::make_pair(meas_true_x, meas_true_y)};
-      } else {
-        measPosMap[meas_eventId][part_idx][disc_idx].
-          push_back(std::make_pair(meas_true_x, meas_true_y));
-      }
+        // check if there already exist measurements before adding another
+        auto itDiscIdx = measPosMap[meas_eventId][part_idx].find(disc_idx);
+        if (itDiscIdx == measPosMap[meas_eventId][part_idx].end()) {
+          measPosMap[meas_eventId][part_idx][disc_idx] =
+            {std::array<float, 3>{meas_true_x, meas_true_y, meas_true_z}};
+        } else {
+          measPosMap[meas_eventId][part_idx][disc_idx].
+            push_back(std::array<float, 3>{meas_true_x, meas_true_y, meas_true_z});
+        }
 
-      if (debugLevel > 2)
-        std::cout << "DEBUG (3): meas entry " << i << " eventId=" << meas_eventId
-                  << " part_idx=" << part_idx << " disc_idx=" << disc_idx
-                  << " meas_true_x=" << meas_true_x << " meas_true_y=" << meas_true_y
-                  << std::flush << std::endl;
-      if (disc_side == 0) { // backward
-        hMeasXY_bwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
-      } else if (disc_side == 1) { // forward
-        hMeasXY_fwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
-      }
-      nMeasFilled++;
-    }  // loop over measurements
+        if (debugLevel > 2)
+          std::cout << "DEBUG (3): meas entry " << i << " eventId=" << meas_eventId
+                    << " part_idx=" << part_idx << " disc_idx=" << disc_idx
+                    << " meas_true_x=" << meas_true_x << " meas_true_y=" << meas_true_y
+                    << std::flush << std::endl;
+        if (disc_side == 0) { // backward
+          hMeasXY_bwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
+        } else if (disc_side == 1) { // forward
+          hMeasXY_fwd[layer_in_side]->Fill(meas_true_x, meas_true_y);
+        }
+        nMeasFilled++;
+      }  // loop over measurements
 
-    if (debugLevel > 0)
-      std::cout << "DEBUG (0): meas loop done, measPosMap has "
-                << measPosMap.size() << " events with " << nMeasFilled
-                << " measurements filled." << std::flush << std::endl;
+      if (debugLevel > 0)
+        std::cout << "DEBUG (0): meas loop done, measPosMap has "
+                  << measPosMap.size() << " events with " << nMeasFilled
+                  << " measurements filled." << std::flush << std::endl;
 
-    // loop over events and particles in hitPosMap, check if they have measurement, and fill histograms
-    if (debugLevel > 0) std::cout << "DEBUG (0): starting match loop over "
-                                  << hitPosMap.size() << " events" << std::flush << std::endl;
-    unsigned matchLoopEventCount = 0;
-    for (const auto& [eventId, particlesInEvent] : hitPosMap) {
-      if (matchLoopEventCount % 1000 == 0 && debugLevel > 2)
-        std::cout << "DEBUG (3): match loop event " << matchLoopEventCount
-                  << " (eventId=" << eventId << ")" << std::flush << std::endl;
-      else if (matchLoopEventCount % 10000 == 0 && debugLevel > 1)
-        std::cout << "DEBUG (2): match loop event " << matchLoopEventCount
-                  << " (eventId=" << eventId << ")" << std::flush << std::endl;
-      matchLoopEventCount++;
-      auto itMeasEvent = measPosMap.find(eventId);
+      // loop over events and particles in hitPosMap, check if they have measurement, and fill histograms
+      if (debugLevel > 0) std::cout << "DEBUG (0): starting match loop over "
+                                    << hitPosMap.size() << " events" << std::flush << std::endl;
+      unsigned matchLoopEventCount = 0;
+      for (const auto& [eventId, particlesInEvent] : hitPosMap) {
+        if (matchLoopEventCount % 1000 == 0 && debugLevel > 2)
+          std::cout << "DEBUG (3): match loop event " << matchLoopEventCount
+                    << " (eventId=" << eventId << ")" << std::flush << std::endl;
+        else if (matchLoopEventCount % 10000 == 0 && debugLevel > 1)
+          std::cout << "DEBUG (2): match loop event " << matchLoopEventCount
+                    << " (eventId=" << eventId << ")" << std::flush << std::endl;
+        matchLoopEventCount++;
+        auto itMeasEvent = measPosMap.find(eventId);
 
-      if (itMeasEvent == measPosMap.end()) {
-        // ------------------------------- NO MEASUREMENTS IN THIS EVENT -------------------------------
-        // no measurement for this event: all hits are misses (this should NEVER happen, but just in case)
-        for (const auto& [particleIdx, particleHitLayers] : particlesInEvent) {
-          for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
-            IDs discIDs = disc_idx_to_ID(disc_idx);
-            auto [disc_side, layer_in_side] = discIDs;
-            for (const auto& hit_pos : hit_positions) {
-              const auto& [hit_x, hit_y] = hit_pos;
-              float phi = std::atan2(hit_y, hit_x);
-              if (disc_side == 0) { // backward
-                hMissXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
-                hEffPhi_bwd[layer_in_side]->Fill(0, phi);
-              } else if (disc_side == 1) { // forward
-                hMissXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
-                hEffPhi_fwd[layer_in_side]->Fill(0, phi);
-              }
-            }  // loop over hits in layer 
-          }  // loop over layers of particle
-        }  // loop over particles in event
-        continue;  // move to next event in hitPosMap
-      }  // event not found in measurements
-
-      for (const auto& [particleIdx, particleHitLayers] : particlesInEvent) {
-        // check if this particle has measurement
-        auto itMeasParticle = measPosMap[eventId].find(particleIdx);
-        if (itMeasParticle == measPosMap[eventId].end()) {
-          // -------------------------------- NO MEASUREMENTS FOR THIS PARTICLE -------------------------------
-          // no measurements for this particle: all hits are misses (should almost never happen)
-          for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
-            IDs discIDs = disc_idx_to_ID(disc_idx);
-            auto [disc_side, layer_in_side] = discIDs;
-            for (const auto& hit_pos : hit_positions) {
-              const auto& [hit_x, hit_y] = hit_pos;
-              float phi = std::atan2(hit_y, hit_x);
-              if (disc_side == 0) { // backward
-                hMissXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
-                hEffPhi_bwd[layer_in_side]->Fill(0, phi);
-              } else if (disc_side == 1) { // forward
-                hMissXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
-                hEffPhi_fwd[layer_in_side]->Fill(0, phi);
-              }
-            }  // loop over hits in layer
-          }  // loop over layers of particle
-          continue;  // move to next particle
-        }  // particle not found in measurements
-        // -------------------------------- THIS PARTICLE HAS MEASUREMENTS -------------------------------
-        auto& measLayers = itMeasParticle->second;
-        for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
-          auto itMeasDiscIdx = measLayers.find(disc_idx);
-          IDs discIDs = disc_idx_to_ID(disc_idx);
-          auto [disc_side, layer_in_side] = discIDs;
-          if (layer_in_side >= (unsigned)nDiscs) {
-            if (debugLevel > 0)
-              std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
-                        << " out of range in match loop, eventId=" << eventId
-                        << " particleIdx=" << particleIdx << " disc_idx=" << disc_idx
-                        << std::flush << std::endl;
-            continue;
-          }
-          if (itMeasDiscIdx == measLayers.end()) {
-            // -------------------------------- THIS LAYER HAS NO MEASUREMENT -------------------------------
-            // no measurement for this layer: all hits are misses (somewhat rare)
-            for (const auto& hit_pos : hit_positions) {
-              const auto& [hit_x, hit_y] = hit_pos;
-              float phi = std::atan2(hit_y, hit_x);
-              if (disc_side == 0) { // backward
-                hMissXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
-                hEffPhi_bwd[layer_in_side]->Fill(0, phi);
-              } else if (disc_side == 1) { // forward
-                hMissXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
-                hEffPhi_fwd[layer_in_side]->Fill(0, phi);
-              }
-            }  // loop over hits in layer
-          }  // no measurement in layer (if statement)
-          else {
-            // --------------- THIS LAYER HAS AT LEAST ONE MEASUREMENT ----------------------
-            // go through each hit to see if it matches any measurement
-            auto& meas_positions = itMeasDiscIdx->second;  // can be several per layer
-            for (const auto& hit_pos : hit_positions) {
-              const auto& [hit_x, hit_y] = hit_pos;
-              float phi = std::atan2(hit_y, hit_x);
-              bool has_match = false;
-              for (auto itMeasPos = meas_positions.begin(); itMeasPos != meas_positions.end(); ++itMeasPos) {
-                if (hit_measurement_match(hit_pos, *itMeasPos)) {
-                  has_match = true;
-                  // remove measurement after match since we do this with single particle event scans
-                  meas_positions.erase(itMeasPos);
-                  break;
-                }
-              }
-              if (has_match) {
-                // hit becomes measurement
-                if (disc_side == 0) { // backward
-                  hEffPhi_bwd[layer_in_side]->Fill(1, phi);
-                } else if (disc_side == 1) { // forward
-                  hEffPhi_fwd[layer_in_side]->Fill(1, phi);
-                }
-              } else {
-                // hit does not become measurement: fill miss hist
+        if (itMeasEvent == measPosMap.end()) {
+          // ------------------------------- NO MEASUREMENTS IN THIS EVENT -------------------------------
+          // no measurement for this event: all hits are misses (this should NEVER happen, but just in case)
+          for (const auto& [particleIdx, particleHitLayers] : particlesInEvent) {
+            for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
+              IDs discIDs = disc_idx_to_ID(disc_idx);
+              auto [disc_side, layer_in_side] = discIDs;
+              for (const auto& hit_pos : hit_positions) {
+                const auto& [hit_x, hit_y, hit_z] = hit_pos;
+                float phi = std::atan2(hit_y, hit_x);
                 if (disc_side == 0) { // backward
                   hMissXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
-                  hEffPhi_bwd[layer_in_side]->Fill(0, phi);
                 } else if (disc_side == 1) { // forward
                   hMissXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
-                  hEffPhi_fwd[layer_in_side]->Fill(0, phi);
                 }
-              }
-            }  // loop over hits in layer
-          }  // layer has at least one measurement (else statement)
-        }  // loop over layers of particle
-      }  // loop over particles in event
-    }  // loop over events
-    if (debugLevel > 0) std::cout << "DEBUG (0): match loop done" << std::flush << std::endl;
+              }  // loop over hits in layer 
+            }  // loop over layers of particle
+          }  // loop over particles in event
+          continue;  // move to next event in hitPosMap
+        }  // event not found in measurements
+
+        for (const auto& [particleIdx, particleHitLayers] : particlesInEvent) {
+          // check if this particle has measurement
+          auto itMeasParticle = measPosMap[eventId].find(particleIdx);
+          if (itMeasParticle == measPosMap[eventId].end()) {
+            // -------------------------------- NO MEASUREMENTS FOR THIS PARTICLE -------------------------------
+            // no measurements for this particle: all hits are misses (should almost never happen)
+            for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
+              IDs discIDs = disc_idx_to_ID(disc_idx);
+              auto [disc_side, layer_in_side] = discIDs;
+              for (const auto& hit_pos : hit_positions) {
+                const auto& [hit_x, hit_y, hit_z] = hit_pos;
+                float phi = std::atan2(hit_y, hit_x);
+                if (disc_side == 0) { // backward
+                  hMissXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
+                } else if (disc_side == 1) { // forward
+                  hMissXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
+                }
+              }  // loop over hits in layer
+            }  // loop over layers of particle
+            continue;  // move to next particle
+          }  // particle not found in measurements
+          // -------------------------------- THIS PARTICLE HAS MEASUREMENTS -------------------------------
+          auto& measLayers = itMeasParticle->second;
+          for (const auto& [disc_idx, hit_positions] : particleHitLayers) {
+            auto itMeasDiscIdx = measLayers.find(disc_idx);
+            IDs discIDs = disc_idx_to_ID(disc_idx);
+            auto [disc_side, layer_in_side] = discIDs;
+            if (layer_in_side >= (unsigned)nDiscs) {
+              if (debugLevel > 0)
+                std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                          << " out of range in match loop, eventId=" << eventId
+                          << " particleIdx=" << particleIdx << " disc_idx=" << disc_idx
+                          << std::flush << std::endl;
+              continue;
+            }
+            if (itMeasDiscIdx == measLayers.end()) {
+              // -------------------------------- THIS LAYER HAS NO MEASUREMENT -------------------------------
+              // no measurement for this layer: all hits are misses (somewhat rare)
+              for (const auto& hit_pos : hit_positions) {
+                const auto& [hit_x, hit_y, hit_z] = hit_pos;
+                float phi = std::atan2(hit_y, hit_x);
+                if (disc_side == 0) { // backward
+                  hMissXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
+                } else if (disc_side == 1) { // forward
+                  hMissXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
+                }
+              }  // loop over hits in layer
+            }  // no measurement in layer (if statement)
+            else {
+              // --------------- THIS LAYER HAS AT LEAST ONE MEASUREMENT ----------------------
+              // go through each hit to see if it matches any measurement
+              auto& meas_positions = itMeasDiscIdx->second;  // can be several per layer
+              for (const auto& hit_pos : hit_positions) {
+                const auto& [hit_x, hit_y, hit_z] = hit_pos;
+                float phi = std::atan2(hit_y, hit_x);
+                bool has_match = false;
+                for (auto itMeasPos = meas_positions.begin(); itMeasPos != meas_positions.end(); ++itMeasPos) {
+                  if (hit_measurement_match(hit_pos, *itMeasPos)) {
+                    has_match = true;
+                    // remove measurement after match since we do this with single particle event scans
+                    meas_positions.erase(itMeasPos);
+                    break;
+                  }
+                }
+                if (has_match) {
+                  // hit becomes measurement
+                  if (disc_side == 0) { // backward
+                  } else if (disc_side == 1) { // forward
+                  }
+                } else {
+                  // hit does not become measurement: fill miss hist
+                  if (disc_side == 0) { // backward
+                    hMissXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
+                  } else if (disc_side == 1) { // forward
+                    hMissXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
+                  }
+                }
+              }  // loop over hits in layer
+            }  // layer has at least one measurement (else statement)
+          }  // loop over layers of particle
+        }  // loop over particles in event
+      }  // loop over events
+      if (debugLevel > 0) std::cout << "DEBUG (0): match loop done" << std::flush << std::endl;
+    }  // if runWithMeasurements
 
     fHits->Close();
     fMeas->Close();
@@ -421,6 +450,71 @@ void disc_coverage(
     if (debugLevel > 0) std::cout << "DEBUG (0): maps cleared, moving to next file"
                                   << std::flush << std::endl;
   }
+  // perform fits on r dependence after all hits are written to later scale x dep
+  std::array<TF1*, nDiscs> fitFunc_bwd, fitFunc_fwd;
+  for (int i = 0; i < nDiscs; i++) {
+    // make fit in reduced range to avoid edge effects
+    fitFunc_bwd[i] = new TF1("fitFunc_bwd_" + bwdLabels[i], "[0]/pow(x, [1])",
+                              rMinNominal[i] + 50, rMaxNominal[i] - 50);
+    // start with 1/r dependence
+    fitFunc_bwd[i]->SetParameters(hnHits_wrtR_bwd[i]->GetMean(), 1);
+    // r for restricting range to given r values above
+    hnHits_wrtR_bwd[i]->Fit(fitFunc_bwd[i], "QR");
+
+    fitFunc_fwd[i] = new TF1("fitFunc_fwd_" + fwdLabels[i], "[0]/pow(x, [1])",
+                              rMinNominal[i] + 50, rMaxNominal[i] - 50);
+    // start with 1/r dependence
+    fitFunc_fwd[i]->SetParameters(hnHits_wrtR_fwd[i]->GetMean(), 1);
+    hnHits_wrtR_fwd[i]->Fit(fitFunc_fwd[i], "QR");
+  }
+
+  // loop over hits again for scaled x dependence
+  for (const TString& pathBase : pathBases) {
+    const TString hitsFile         = actso2_output_base + pathBase + "/hits.root";
+    TFile* fHits = TFile::Open(hitsFile);
+    if (!fHits || fHits->IsZombie()) {
+      std::cerr << "Cannot open " << hitsFile << " for second loop — skipping" << std::endl;
+      continue;
+    }
+    TTree* tHits = (TTree*)fHits->Get("hits");
+    if (!tHits) {
+      std::cerr << "hits tree not found in " << hitsFile
+                << " for second loop — skipping" << std::endl; fHits->Close();
+      continue;
+    }
+    // hit branches
+    tHits->SetBranchAddress("layer_id", &hit_layer_id);
+    tHits->SetBranchAddress("volume_id", &hit_volume_id);
+    tHits->SetBranchAddress("tx", &hit_x);
+    tHits->SetBranchAddress("ty", &hit_y);
+
+    unsigned nHits = tHits->GetEntries();
+    for (Long64_t i = 0; i < nHits; i++) {
+      tHits->GetEntry(i);
+      unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id);
+      if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc hit, ignore
+      IDs discIDs = disc_idx_to_ID(disc_idx);
+      auto [disc_side, layer_in_side] = discIDs;
+      if (layer_in_side >= (unsigned)nDiscs) {
+        if (debugLevel > 0)
+          std::cerr << "DEBUG ERROR: layer_in_side=" << layer_in_side
+                    << " out of range at hits entry " << i
+                    << " vol=" << hit_volume_id << " layer=" << hit_layer_id
+                    << " disc_idx=" << disc_idx << std::flush << std::endl;
+        continue;
+      }
+      double r = std::sqrt(hit_x*hit_x + hit_y*hit_y);
+      double scaleFactor = 1.0;
+      if (disc_side == 0) { // backward
+        scaleFactor = fitFunc_bwd[layer_in_side]->Eval(r);
+        hnHits_wrtX_Scaled_bwd[layer_in_side]->Fill(hit_x, 1.0/scaleFactor);
+      } else if (disc_side == 1) { // forward
+        scaleFactor = fitFunc_fwd[layer_in_side]->Eval(r);
+        hnHits_wrtX_Scaled_fwd[layer_in_side]->Fill(hit_x, 1.0/scaleFactor);
+      }
+    }  // loop over hits again for scaled x dependence
+    fHits->Close();
+  }  // loop over files again for scaled x dependence
 
   if (debugLevel > 0) std::cout << "DEBUG (0): all files processed, starting drawing"
                                 << std::flush << std::endl;
@@ -432,51 +526,95 @@ void disc_coverage(
   TString efficiencyOutDir = geo_studies_base + "figures/geo/efficiency_layer/";
   for (int i = 0; i < nDiscs; i++) {
     // backward
-    TCanvas* c_bwd = new TCanvas("c_bwd_" + bwdLabels[i], bwdLabels[i] + " hit coverage", 1200, 400);
-    c_bwd->Divide(3,1);
-    c_bwd->cd(1);
-    hHitsXY_bwd[i]->Draw("colz");
-    c_bwd->cd(2);
-    hMeasXY_bwd[i]->Draw("colz");
-    c_bwd->cd(3);
-    hMissXY_bwd[i]->Draw("colz");
+    TCanvas* c_bwd;
+    if (runWithMeasurements) {
+      c_bwd = new TCanvas("c_bwd_" + bwdLabels[i], bwdLabels[i] + " hit coverage", 1200, 400);
+      c_bwd->Divide(3,1);
+      c_bwd->cd(1);
+      hHitsXY_bwd[i]->Draw("colz");
+      hHitsXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
+      c_bwd->cd(2);
+      hMeasXY_bwd[i]->Draw("colz");
+      hMeasXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Measurement positions;x (mm);y (mm)");
+      c_bwd->cd(3);
+      hMissXY_bwd[i]->Draw("colz");
+      hMissXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Hits not becoming measurements;x (mm);y (mm)");
+    } else {
+      c_bwd = new TCanvas("c_bwd_" + bwdLabels[i], bwdLabels[i] + " hit coverage", 600, 600);
+      hHitsXY_bwd[i]->Draw("colz");
+      hHitsXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
+    }
     c_bwd->SaveAs(occupancyOutDir + "xy_hitmap_" + bwdLabels[i] + ".pdf");
 
-    TCanvas* c_eff_bwd = new TCanvas("c_eff_bwd_" + bwdLabels[i], bwdLabels[i] + " efficiency vs phi", 900, 700);
-    c_eff_bwd->SetLeftMargin(0.12);
-    c_eff_bwd->SetRightMargin(0.15);
-    c_eff_bwd->SetTopMargin(0.08);
-    c_eff_bwd->SetBottomMargin(0.12);
-    hEffPhi_bwd[i]->Draw("AP");
-    gPad->Update();
-    hEffPhi_bwd[i]->GetPaintedGraph()->GetXaxis()->SetTitle("#phi (rad)");
-    hEffPhi_bwd[i]->GetPaintedGraph()->GetYaxis()->SetTitle("Efficiency");
-    hEffPhi_bwd[i]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0.95, 1.02);
-    gPad->Update();
-    c_eff_bwd->SaveAs(efficiencyOutDir + "eff_phi_" + bwdLabels[i] + ".pdf");
+    TCanvas* c_hits1D_bwd = new TCanvas("c_hits1D_bwd_" + bwdLabels[i], bwdLabels[i] + " nHits wrt x and r", 1200, 400);
+    // split into three: r dep hits + fit, x dep hits, x dep scaled hits
+    c_hits1D_bwd->Divide(3,1);
+    c_hits1D_bwd->cd(1);
+    hnHits_wrtR_bwd[i]->Draw("EP");
+    hnHits_wrtR_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": N_{hits} vs r;r (mm);N_{hits}");
+    fitFunc_bwd[i]->Draw("SAME");
+    // legend for fit
+    TLegend* legend_bwd = new TLegend(0.6, 0.7, 0.9, 0.9);
+    legend_bwd->AddEntry(hnHits_wrtR_bwd[i], "Hits", "lep");
+    TString fitLabel = Form("Fit: #frac{%.1f}{r^{%.2f}}",
+                            fitFunc_bwd[i]->GetParameter(0),
+                            fitFunc_bwd[i]->GetParameter(1));
+    legend_bwd->AddEntry(fitFunc_bwd[i], fitLabel, "l");
+    legend_bwd->Draw();
+
+    c_hits1D_bwd->cd(2);
+    hnHits_wrtX_bwd[i]->Draw("EP");
+    hnHits_wrtX_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": N_{hits} vs x;x (mm);N_{hits}");
+
+    c_hits1D_bwd->cd(3);
+    hnHits_wrtX_Scaled_bwd[i]->Draw("EP");
+    hnHits_wrtX_Scaled_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": N_{hits} vs x scaled;x (mm);N_{hits}");
+    c_hits1D_bwd->SaveAs(efficiencyOutDir + "nHits_wrt_X_R_" + bwdLabels[i] + ".pdf");
 
     // forward
-    TCanvas* c_fwd = new TCanvas("c_fwd_" + fwdLabels[i], fwdLabels[i] + " hit coverage", 1200, 400);
-    c_fwd->Divide(3,1);
-    c_fwd->cd(1);
-    hHitsXY_fwd[i]->Draw("colz");
-    c_fwd->cd(2);
-    hMeasXY_fwd[i]->Draw("colz");
-    c_fwd->cd(3);
-    hMissXY_fwd[i]->Draw("colz");
+    TCanvas* c_fwd;
+    if (runWithMeasurements) {
+      c_fwd = new TCanvas("c_fwd_" + fwdLabels[i], fwdLabels[i] + " hit coverage", 1200, 400);
+      c_fwd->Divide(3,1);
+      c_fwd->cd(1);
+      hHitsXY_fwd[i]->Draw("colz");
+      hHitsXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
+      c_fwd->cd(2);
+      hMeasXY_fwd[i]->Draw("colz");
+      hMeasXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Measurement positions;x (mm);y (mm)");
+      c_fwd->cd(3);
+      hMissXY_fwd[i]->Draw("colz");
+      hMissXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Hits not becoming measurements;x (mm);y (mm)");
+    } else {
+      c_fwd = new TCanvas("c_fwd_" + fwdLabels[i], fwdLabels[i] + " hit coverage", 600, 600);
+      hHitsXY_fwd[i]->Draw("colz");
+      hHitsXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
+    }
     c_fwd->SaveAs(occupancyOutDir + "xy_hitmap_" + fwdLabels[i] + ".pdf");
 
-    TCanvas* c_eff_fwd = new TCanvas("c_eff_fwd_" + fwdLabels[i], fwdLabels[i] + " efficiency vs phi", 900, 700);
-    c_eff_fwd->SetLeftMargin(0.12);
-    c_eff_fwd->SetRightMargin(0.15);
-    c_eff_fwd->SetTopMargin(0.08);
-    c_eff_fwd->SetBottomMargin(0.12);
-    hEffPhi_fwd[i]->Draw("AP");
-    gPad->Update();
-    hEffPhi_fwd[i]->GetPaintedGraph()->GetXaxis()->SetTitle("#phi (rad)");
-    hEffPhi_fwd[i]->GetPaintedGraph()->GetYaxis()->SetTitle("Efficiency");
-    hEffPhi_fwd[i]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0.95, 1.02);
-    gPad->Update();
-    c_eff_fwd->SaveAs(efficiencyOutDir + "eff_phi_" + fwdLabels[i] + ".pdf");
+    TCanvas* c_hits1D_fwd = new TCanvas("c_hits1D_fwd_" + fwdLabels[i], fwdLabels[i] + " nHits wrt x and r", 1200, 400);
+    // split into three: r dep hits + fit, x dep hits, x dep scaled hits
+    c_hits1D_fwd->Divide(3,1);
+    c_hits1D_fwd->cd(1);
+    hnHits_wrtR_fwd[i]->Draw("EP");
+    hnHits_wrtR_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": N_{hits} vs r;r (mm);N_{hits}");
+    fitFunc_fwd[i]->Draw("SAME");
+    // legend for fit
+    TLegend* legend_fwd = new TLegend(0.6, 0.7, 0.9, 0.9);
+    legend_fwd->AddEntry(hnHits_wrtR_fwd[i], "Hits", "lep");
+    TString fitLabel_fwd = Form("Fit: #frac{%.1f}{r^{%.2f}}",
+                                fitFunc_fwd[i]->GetParameter(0),
+                                fitFunc_fwd[i]->GetParameter(1));
+    legend_fwd->AddEntry(fitFunc_fwd[i], fitLabel_fwd, "l");
+    legend_fwd->Draw();
+
+    c_hits1D_fwd->cd(2);
+    hnHits_wrtX_fwd[i]->Draw("EP");
+    hnHits_wrtX_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": N_{hits} vs x;x (mm);N_{hits}");
+
+    c_hits1D_fwd->cd(3);
+    hnHits_wrtX_Scaled_fwd[i]->Draw("EP");
+    hnHits_wrtX_Scaled_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": N_{hits} vs x scaled;x (mm);N_{hits}");
+    c_hits1D_fwd->SaveAs(efficiencyOutDir + "nHits_wrt_X_R_" + fwdLabels[i] + ".pdf");
   }
 }
