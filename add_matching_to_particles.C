@@ -81,7 +81,10 @@ void add_matching_to_particles(
 
   for (Long64_t i = 0; i < tPerf->GetEntries(); i++) {
     tPerf->GetEntry(i);
-    matchMap[perfEventId] = {};
+    // check if event id already exists in map, if not create new entry
+    if (matchMap.find(perfEventId) == matchMap.end()) {
+      matchMap[perfEventId] = {};
+    }
     matchMap[perfEventId][perfParticle] = i;
   }
   std::cout << "Loaded " << matchMap.size()
@@ -91,7 +94,9 @@ void add_matching_to_particles(
             " with " << tSeedPerf->GetEntries() << " entries." << std::endl;
   for (Long64_t i = 0; i < tSeedPerf->GetEntries(); i++) {
     tSeedPerf->GetEntry(i);
-    seedMatchMap[seedPerfEventId] = {};
+    if (seedMatchMap.find(seedPerfEventId) == seedMatchMap.end()) {
+      seedMatchMap[seedPerfEventId] = {};
+    }
     seedMatchMap[seedPerfEventId][seedPerfParticle] = i;
   }
   std::cout << "Loaded " << seedMatchMap.size()
@@ -143,6 +148,8 @@ void add_matching_to_particles(
 
   Long64_t nSim   = tSim->GetEntries();
   Long64_t nFound = 0;
+  Long64_t nSeedFound = 0;
+  Long64_t nParticlesTotal = 0;
 
   for (Long64_t i = 0; i < nSim; i++) {
     tSim->GetEntry(i);
@@ -167,16 +174,18 @@ void add_matching_to_particles(
           outSeedFakeWeights.push_back({});
           continue;
         }
+        nParticlesTotal++;
         auto itEvent = matchMap.find(simEventId);
         if (itEvent != matchMap.end()) { // at least one particle has match
           auto itPID = itEvent->second.find(simPID);
           if (itPID != itEvent->second.end()) {
             unsigned perfIdx = itPID->second;
             tPerf->GetEntry(perfIdx);
-            outMatchedIdxs.push_back(*matchedIdxs);
-            outMatchedWeights.push_back(*matchedWeights);
-            outFakeIdxs.push_back(*fakeIdxs);
-            outFakeWeights.push_back(*fakeWeights);
+            // deep copy vectors to output vectors
+            outMatchedIdxs.push_back(std::vector<unsigned>(*matchedIdxs));
+            outMatchedWeights.push_back(std::vector<double>(*matchedWeights));
+            outFakeIdxs.push_back(std::vector<unsigned>(*fakeIdxs));
+            outFakeWeights.push_back(std::vector<double>(*fakeWeights));
             // std::cout << "Primary matched index for ev " << simEventId << " particle "
             //           << simPID << ": " << (*matchedIdxs)[0]
             //           << " with weight " << (*matchedWeights)[0] << std::endl;
@@ -201,10 +210,11 @@ void add_matching_to_particles(
           if (itSeedPID != itSeedEvent->second.end()) {
             unsigned seedPerfIdx = itSeedPID->second;
             tSeedPerf->GetEntry(seedPerfIdx);
-            outSeedMatchedIdxs.push_back(*seedMatchedIdxs);
-            outSeedMatchedWeights.push_back(*seedMatchedWeights);
-            outSeedFakeIdxs.push_back(*seedFakeIdxs);
-            outSeedFakeWeights.push_back(*seedFakeWeights);
+            outSeedMatchedIdxs.push_back(std::vector<unsigned>(*seedMatchedIdxs));
+            outSeedMatchedWeights.push_back(std::vector<double>(*seedMatchedWeights));
+            outSeedFakeIdxs.push_back(std::vector<unsigned>(*seedFakeIdxs));
+            outSeedFakeWeights.push_back(std::vector<double>(*seedFakeWeights));
+            nSeedFound++;
           } else { // no match for this particle id
             outSeedMatchedIdxs.push_back({});
             outSeedMatchedWeights.push_back({});
@@ -239,6 +249,7 @@ void add_matching_to_particles(
   fOut->Close();
   fSim->Close();
 
-  std::cout << "Matched " << nFound << " / " << nSim << " particles." << std::endl;
+  std::cout << "Matched " << nFound << " / " << nParticlesTotal << " particles." << std::endl;
+  std::cout << "Seed matched " << nSeedFound << " / " << nParticlesTotal << " particles." << std::endl;
   std::cout << "Saved: " << outFile << std::endl;
 }

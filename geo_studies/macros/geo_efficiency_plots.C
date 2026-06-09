@@ -105,7 +105,7 @@ void geo_efficiency_plots(
   pHitsAll->Draw("E1");
   pHitsReco->Draw("E1 same");
   pHitsNReco->Draw("E1 same");
-  pHitsAll->GetYaxis()->SetRangeUser(6, 15);
+  pHitsAll->GetYaxis()->SetRangeUser(6, 20);
   auto* leg1 = new TLegend(0.12, 0.72, 0.38, 0.88);
   leg1->AddEntry(pHitsAll,   "All",      "ep");
   leg1->AddEntry(pHitsReco,  "Reco",     "ep");
@@ -118,7 +118,7 @@ void geo_efficiency_plots(
   gPad->Update();
   effEta->GetPaintedGraph()->GetXaxis()->SetTitle("#eta");
   effEta->GetPaintedGraph()->GetYaxis()->SetTitle("Efficiency");
-  effEta->GetPaintedGraph()->GetYaxis()->SetRangeUser(0.8, 1.05);
+  effEta->GetPaintedGraph()->GetYaxis()->SetRangeUser(0, 1.05);
   gPad->Update();
 
   // --- Canvas 3: 2D efficiency eta-phi ---
