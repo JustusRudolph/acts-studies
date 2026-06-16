@@ -75,7 +75,8 @@ void geo_efficiency_plots(
 
       for (unsigned i_part = 0; i_part < eta->size(); i_part++) {
         if (generation->at(i_part) != 0 ||
-            nhits->at(i_part) < nMinHits) continue;
+            nhits->at(i_part) < nMinHits ||
+            pt->at(i_part) <= 0.5) continue;
 
         const bool wasReco = !matchedIdxs->at(i_part).empty();
         nFills++;
