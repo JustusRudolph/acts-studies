@@ -28,10 +28,14 @@ bool primary_cut(unsigned generation) {
   return generation == 0;
 }
 
-bool alice3_default_cut(float eta, unsigned nHits, unsigned generation) {
-  return eta_cut(eta, 1) &&
-         minHits_cut(nHits, 7) &&
+bool alice3_default_cut(unsigned nHits, unsigned generation) {
+  return minHits_cut(nHits, 7) &&
          primary_cut(generation);
+}
+
+bool alice3_default_central_cut(float eta, unsigned nHits, unsigned generation) {
+  return eta_cut(eta, 1) &&
+         alice3_default_cut(nHits, generation);
 }
 
 }  // namespace Cuts
