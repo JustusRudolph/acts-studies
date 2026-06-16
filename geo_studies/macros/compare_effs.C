@@ -34,6 +34,33 @@ const std::vector<TString> kFindingYLabels = {
   "Track efficiency",
 };
 
+const std::vector<TString> kFindingCKFHistNames = {
+  "trackeff_vs_eta",
+};
+const std::vector<TString> kFindingCKFTitles = {
+  "Comparison in Track efficiency vs #eta (CKF)",
+};
+const std::vector<TString> kFindingCKFXLabels = {
+  "#eta",
+};
+const std::vector<TString> kFindingCKFYLabels = {
+  "Track efficiency",
+};
+
+const std::vector<TString> kFindingMergedHistNames = {
+  "trackeff_vs_eta",
+};
+const std::vector<TString> kFindingMergedTitles = {
+  "Comparison in Track efficiency vs #eta (merged)",
+};
+const std::vector<TString> kFindingMergedXLabels = {
+  "#eta",
+};
+const std::vector<TString> kFindingMergedYLabels = {
+  "Track efficiency",
+};
+
+
 const std::vector<TString> kFittingHistNames = {
   "reswidth_d0_vs_eta",
   "res_qopt",
@@ -248,33 +275,49 @@ void compare_effs(
   const TString path1,
   const TString path2,
   const TString label1 = "Sample 1",
-  const TString label2 = "Sample 2"
+  const TString label2 = "Sample 2",
+  const bool onSTBC = false
 ) {
   gStyle->SetOptStat(0);
 
-  const TString base = "/home/justus/projects/alice/ACTSO2/output/";
+  const TString base = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
+  const TString actso2_output_base = base + "alice/ACTSO2/output/";
+  const TString geo_studies_base = base + "alice/acts-studies/geo_studies/";
 
-  TFile* fFind1 = TFile::Open(base + path1 + "/performance_finding_ambi.root");
-  TFile* fFind2 = TFile::Open(base + path2 + "/performance_finding_ambi.root");
-  TFile* fFit1  = TFile::Open(base + path1 + "/performance_fitting_ambi.root");
-  TFile* fFit2  = TFile::Open(base + path2 + "/performance_fitting_ambi.root");
+  TFile* fFind1 = TFile::Open(actso2_output_base + path1 + "/performance_finding_ambi.root");
+  TFile* fFind2 = TFile::Open(actso2_output_base + path2 + "/performance_finding_ambi.root");
+  TFile* fFindCKF1 = TFile::Open(actso2_output_base + path1 + "/performance_finding_ckf_tracks.root");
+  TFile* fFindCKF2 = TFile::Open(actso2_output_base + path2 + "/performance_finding_ckf_tracks.root");
+  TFile* fFindMerged1 = TFile::Open(actso2_output_base + path1 + "/performance_merged_ambi_tracks.root");
+  TFile* fFindMerged2 = TFile::Open(actso2_output_base + path2 + "/performance_merged_ambi_tracks.root");
+  TFile* fFit1  = TFile::Open(actso2_output_base + path1 + "/performance_fitting_ambi.root");
+  TFile* fFit2  = TFile::Open(actso2_output_base + path2 + "/performance_fitting_ambi.root");
 
   if (!fFind1 || fFind1->IsZombie()) { std::cerr << "Cannot open finding file 1" << std::endl; return; }
   if (!fFind2 || fFind2->IsZombie()) { std::cerr << "Cannot open finding file 2" << std::endl; return; }
+  if (!fFindCKF1 || fFindCKF1->IsZombie()) { std::cerr << "Cannot open finding CKF file 1" << std::endl; return; }
+  if (!fFindCKF2 || fFindCKF2->IsZombie()) { std::cerr << "Cannot open finding CKF file 2" << std::endl; return; }
+  if (!fFindMerged1 || fFindMerged1->IsZombie()) { std::cerr << "Cannot open finding merged file 1" << std::endl; return; }
+  if (!fFindMerged2 || fFindMerged2->IsZombie()) { std::cerr << "Cannot open finding merged file 2" << std::endl; return; }
   if (!fFit1  || fFit1->IsZombie())  { std::cerr << "Cannot open fitting file 1" << std::endl; return; }
   if (!fFit2  || fFit2->IsZombie())  { std::cerr << "Cannot open fitting file 2" << std::endl; return; }
 
-  TString outname = Form("figures/compare/compare_%s_vs_%s.pdf", label1.Data(), label2.Data());
+  TString outname = geo_studies_base + Form("figures/compare/compare_%s_vs_%s.pdf",
+                                            label1.Data(), label2.Data());
 
   TCanvas* c = new TCanvas("c", "comparison", 800, 700);
   c->Print(outname + "[");
 
   drawHistograms(fFind1, fFind2, kFindingHistNames, kFindingTitles, kFindingXLabels, kFindingYLabels, c, outname, label1, label2);
+  drawHistograms(fFindCKF1, fFindCKF2, kFindingCKFHistNames, kFindingCKFTitles, kFindingCKFXLabels, kFindingCKFYLabels, c, outname, label1, label2);
+  drawHistograms(fFindMerged1, fFindMerged2, kFindingMergedHistNames, kFindingMergedTitles, kFindingMergedXLabels, kFindingMergedYLabels, c, outname, label1, label2);
   drawHistograms(fFit1,  fFit2,  kFittingHistNames, kFittingTitles, kFittingHistXLabels, kFittingHistYLabels, c, outname, label1, label2);
 
   c->Print(outname + "]");
   std::cout << "Saved: " << outname << std::endl;
 
   fFind1->Close(); fFind2->Close();
+  fFindCKF1->Close(); fFindCKF2->Close();
+  fFindMerged1->Close(); fFindMerged2->Close();
   fFit1->Close();  fFit2->Close();
 }
