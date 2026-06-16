@@ -9,18 +9,20 @@
 
 #include "../utils/cuts.C"  // includes Constants.C
 
-void phi_dep_eff(const std::vector<TString>& phi_eff_input_data_types,
+void phi_dep_eff(const std::vector<TString>& phi_eff_input_dirs,
                  TEfficiency* eff_wrt_phi_near_central,
-                 TEfficiency* eff_wrt_phi_complete_central) {
+                 TEfficiency* eff_wrt_phi_complete_central,
+                 bool onSTBC=false) {
   auto near_central_eta_acceptance_phi_eff = [](float eta) {
     return (std::abs(eta) > 7e-3) && (std::abs(eta) < 1e-2);
   };
   auto complete_central_eta_acceptance_phi_eff = [](float eta) {
     return (std::abs(eta) < 1e-4);
   };
-  for (const auto& phi_eff_input_data_type : phi_eff_input_data_types) {
-    TString phi_eff_path = Form("/%s/performance_finding_ambi.root",
-                                phi_eff_input_data_type.c_str());
+  TString alice_base_dir = Constants::getAliceBaseDir(onSTBC);
+  for (const TString& input_dir : phi_eff_input_dirs) {
+    TString dir_name = Form("%s/ACTSO2/output/%s", alice_base_dir.Data(), input_dir.Data());
+    TString phi_eff_path = Form("%s/particles_matched.root", dir_name.Data());
 
     TFile* phi_eff_file = TFile::Open(phi_eff_path);
     if (!phi_eff_file || phi_eff_file->IsZombie()) {
@@ -28,22 +30,29 @@ void phi_dep_eff(const std::vector<TString>& phi_eff_input_data_types,
       continue;
     }
 
-    TTree* phi_eff_mctree = (TTree*)phi_eff_file->Get("matchingdetails");
-    std::vector<bool>* matched_phi = nullptr;
+    TTree* phi_eff_mctree = (TTree*)phi_eff_file->Get("particles");
+    if (!phi_eff_mctree) {
+      std::cout << "Warning: particles tree not found in " << phi_eff_path << std::endl;
+      phi_eff_file->Close();
+      continue;
+    }
+    std::vector<std::vector<unsigned>>* matched_idxs = nullptr;
     std::vector<float>* phi = nullptr;
     std::vector<float>* eta_phi = nullptr;
-    phi_eff_mctree->SetBranchAddress("matched", &matched_phi);
+    phi_eff_mctree->SetBranchAddress("matched_track_idxs", &matched_idxs);
     phi_eff_mctree->SetBranchAddress("phi", &phi);
     phi_eff_mctree->SetBranchAddress("eta", &eta_phi);
 
     for (unsigned i_ev = 0; i_ev < phi_eff_mctree->GetEntries(); i_ev++) {
       phi_eff_mctree->GetEntry(i_ev);
-      for (size_t i_mcp = 0; i_mcp < matched_phi->size(); i_mcp++) {
+      for (size_t i_mcp = 0; i_mcp < phi->size(); i_mcp++) {
         if (near_central_eta_acceptance_phi_eff(eta_phi->at(i_mcp))) {
-          eff_wrt_phi_near_central->Fill(matched_phi->at(i_mcp), phi->at(i_mcp));
+          eff_wrt_phi_near_central->Fill(!( matched_idxs->at(i_mcp).empty() ),
+                                         phi->at(i_mcp));
         }
         if (complete_central_eta_acceptance_phi_eff(eta_phi->at(i_mcp))) {
-          eff_wrt_phi_complete_central->Fill(matched_phi->at(i_mcp), phi->at(i_mcp));
+          eff_wrt_phi_complete_central->Fill(!( matched_idxs->at(i_mcp).empty() ),
+                                             phi->at(i_mcp));
         }
       }  // loop over mc particles in event
     }  // loop over entries (events) in file
@@ -52,15 +61,16 @@ void phi_dep_eff(const std::vector<TString>& phi_eff_input_data_types,
 }
 
 void alice3_reproduce(const bool onSTBC=false,
-                      const std::vector<TString> input_dirs={"pythia_5k/seed_0"},
+                      const std::vector<TString> input_dirs={"pythia_2500ev/seed_0"},
                       const std::vector<TString> phi_eff_input_dirs={},
                       const float abs_eta_max = 1.0,
+                      const float pT_cut_for_eta_eff = 0.5,
                       const bool include_muons=false) {
   
   // Set ROOT style
   gStyle->SetOptStat(0);
   // need base of where ACTSO2 output is stored to access the input files
-  const TString actso2_base = Constants::getACTSO2Base(onSTBC);
+  const TString alice_base_dir = Constants::getAliceBaseDir(onSTBC);
   // Define particle types and pTs
   std::vector<TString> particles = {"electron", "piplus", "proton", "kaonplus"};
   std::vector<TString> particle_labels = {"e^{-}", "#pi^{+}", "p^{+}", "K^{+}"};
@@ -93,6 +103,7 @@ void alice3_reproduce(const bool onSTBC=false,
   // set up efficiency histograms
   std::vector<TEfficiency*> eff_hists_central(particles.size());  // |eta| < 1
   std::vector<TEfficiency*> eff_seeding_hists_central(particles.size());  // no cuts
+  std::vector<TEfficiency*> eff_hists_eta(particles.size());  // pT > 0.5 GeV, vs eta
 
   for (unsigned i_part = 0; i_part < particles.size(); i_part++) {
     const TString particle = particles[i_part];
@@ -101,11 +112,14 @@ void alice3_reproduce(const bool onSTBC=false,
     eff_seeding_hists_central[i_part] = new TEfficiency(Form("eff_seeding_hist_%s", particle.Data()),
                                                         Form("Seeding Efficiency vs p_{T} for %s", particle.Data()),
                                                         pT_bin_edges_gev.size() - 1, pT_bin_edges_gev.data());
+    eff_hists_eta[i_part] = new TEfficiency(Form("eff_eta_hist_%s", particle.Data()), Form("Efficiency vs #eta for %s", particle.Data()),
+                                            40, -3, 3);
   }
 
   for (const TString& input_dir : input_dirs) {
-    TString dir_name = Form("%s/%s", actso2_base.Data(), input_dir.Data());
-    TString sim_matched_filename = dir_name + "/particles_simulation_matched.root";
+    std::cout << "Processing " << input_dir << "..." << std::endl;
+    TString dir_name = Form("%s/ACTSO2/output/%s", alice_base_dir.Data(), input_dir.Data());
+    TString sim_matched_filename = dir_name + "/particles_matched.root";
     TFile* sim_matched_file = TFile::Open(sim_matched_filename);
     if (!sim_matched_file || sim_matched_file->IsZombie()) {
       std::cout << "Warning: Could not open " << sim_matched_filename << std::endl;
@@ -140,13 +154,18 @@ void alice3_reproduce(const bool onSTBC=false,
           continue;
 
         unsigned i_part = pdg_to_index[pdg->at(i_mcp)];
-        if (Cuts::alice3_default_cut(eta->at(i_mcp),
-                                     nHits->at(i_mcp),
+        if (Cuts::alice3_default_cut(nHits->at(i_mcp),  // allow all eta for eta plot
                                      generation->at(i_mcp))) {
-          eff_hists_central[i_part]->Fill(!( matchedIdxs->at(i_mcp).empty() ),
-                                          pt->at(i_mcp));
-          eff_seeding_hists_central[i_part]->Fill(!( matchedIdxs_Seed->at(i_mcp).empty() ),
-                                                  pt->at(i_mcp));
+          if (eta->at(i_mcp) < abs_eta_max) { // fill pt plots only for central eta
+            eff_hists_central[i_part]->Fill(!( matchedIdxs->at(i_mcp).empty() ),
+                                            pt->at(i_mcp));
+            eff_seeding_hists_central[i_part]->Fill(!( matchedIdxs_Seed->at(i_mcp).empty() ),
+                                                    pt->at(i_mcp));
+          }
+          if (pt->at(i_mcp) > pT_cut_for_eta_eff) {  // fill eta plot only for pT > 0.5 GeV
+            eff_hists_eta[i_part]->Fill(!( matchedIdxs->at(i_mcp).empty() ),
+                                        eta->at(i_mcp));
+          }
         }
       }
     }  // loop over sim_matched tree entries
@@ -159,14 +178,18 @@ void alice3_reproduce(const bool onSTBC=false,
   TEfficiency* eff_wrt_phi_complete_central = new TEfficiency("eff_wrt_phi_complete_central", "Efficiency vs #phi;#phi;Efficiency",
                                              100, -3.14, 3.14);
   if (phi_eff_input_dirs.size() > 0) {
-    phi_dep_eff(phi_eff_input_dirs, eff_wrt_phi_near_central, eff_wrt_phi_complete_central);
+    phi_dep_eff(phi_eff_input_dirs, eff_wrt_phi_near_central,
+                eff_wrt_phi_complete_central, onSTBC);
   } else {
     std::cout << "No input directories provided for phi-dependent efficiency plot. "
               << "Use same inputs as for pT-dependent efficiency plot." << std::endl;
-    phi_dep_eff(input_dirs, eff_wrt_phi_near_central, eff_wrt_phi_complete_central);
+    phi_dep_eff(input_dirs, eff_wrt_phi_near_central,
+                eff_wrt_phi_complete_central, onSTBC);
   }
 
   // Now plot efficiency vs pT for all particles
+  TString output_dir = Form("%s/acts-studies/pythia_studies/figures/alice3_reproduced_plots",
+                            alice_base_dir.Data());
   TCanvas* canvas1 = new TCanvas("c1", "Efficiency vs pT", 800, 600);
   // LEGEND
   // put legend in bottom right corner: same for ambi and seeding plots
@@ -175,7 +198,7 @@ void alice3_reproduce(const bool onSTBC=false,
   leg_eff->SetFillStyle(0);
   
   // PLOTS - First draw to establish the frame
-  eff_hists_central[0]->SetTitle("Efficiency vs p_{T} for various particles (|#eta| < 1); p_{T} (MeV/c); Efficiency");
+  eff_hists_central[0]->SetTitle("Efficiency vs p_{T} for various particles (|#eta| < 1); p_{T} (GeV/c); Efficiency");
   for (unsigned i_part = 0; i_part < particles.size(); i_part++) {
     eff_hists_central[i_part]->SetMarkerColor(colours_per_particle[i_part]);
     eff_hists_central[i_part]->SetLineColor(colours_per_particle[i_part]);
@@ -229,11 +252,11 @@ void alice3_reproduce(const bool onSTBC=false,
   eff_hists_central[0]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0, 1.05);
   eff_hists_central[0]->GetPaintedGraph()->GetXaxis()->SetRangeUser(0.005, 11.0);
 
-  canvas1->SaveAs("figures/alice3_reproduced_plots/efficiency_vs_pT.pdf");
+  canvas1->SaveAs(Form("%s/efficiency_vs_pT.pdf", output_dir.Data()));
 
   // ----------- Now plot seeding efficiency vs pT for all particles -----------
   TCanvas* canvas2 = new TCanvas("c2", "Seeding Efficiency vs pT", 800, 600);
-  eff_seeding_hists_central[0]->SetTitle("Seeding Efficiency vs p_{T} for various particles (|#eta| < 1); p_{T} (MeV/c); Seeding Efficiency");
+  eff_seeding_hists_central[0]->SetTitle("Seeding Efficiency vs p_{T} for various particles (|#eta| < 1); p_{T} (GeV/c); Seeding Efficiency");
   for (unsigned i_part = 0; i_part < particles.size(); i_part++) {
     eff_seeding_hists_central[i_part]->SetMarkerColor(colours_per_particle[i_part]);
     eff_seeding_hists_central[i_part]->SetLineColor(colours_per_particle[i_part]);
@@ -278,9 +301,9 @@ void alice3_reproduce(const bool onSTBC=false,
   eff_seeding_hists_central[0]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0, 1.05);
   eff_seeding_hists_central[0]->GetPaintedGraph()->GetXaxis()->SetRangeUser(0.005, 11.0);
 
-  canvas2->SaveAs("figures/alice3_reproduced_plots/seeding_efficiency_vs_pT.pdf");
+  canvas2->SaveAs(Form("%s/seeding_efficiency_vs_pT.pdf", output_dir.Data()));
 
-  // Now plot efficiency vs phi for central eta
+  // -------------- Now plot efficiency vs phi for central eta --------------
   TCanvas* canvas3 = new TCanvas("c3", "Efficiency vs phi for central eta", 800, 600);
   eff_wrt_phi_near_central->SetMarkerColor(kViolet);
   eff_wrt_phi_near_central->SetLineColor(kViolet);
@@ -305,5 +328,44 @@ void alice3_reproduce(const bool onSTBC=false,
   leg2->AddEntry(eff_wrt_phi_complete_central, "|#eta| < 10^{-4}", "lp");
   leg2->Draw();
 
-  canvas3->SaveAs("figures/alice3_reproduced_plots/eff_wrt_phi_central_eta.pdf");
+  canvas3->SaveAs(Form("%s/eff_wrt_phi_central_eta.pdf", output_dir.Data()));
+
+  // -------------- Now plot efficiency vs eta for pT > 0.5 GeV --------------
+  TCanvas* canvas4 = new TCanvas("c4", "Efficiency vs eta for pT > 0.5 GeV", 800, 600);
+  for (unsigned i_part = 0; i_part < particles.size(); i_part++) {
+    eff_hists_eta[i_part]->SetMarkerColor(colours_per_particle[i_part]);
+    eff_hists_eta[i_part]->SetLineColor(colours_per_particle[i_part]);
+    eff_hists_eta[i_part]->SetMarkerStyle(20);
+    eff_hists_eta[i_part]->SetMarkerSize(1);
+    eff_hists_eta[i_part]->SetLineStyle(1);
+    eff_hists_eta[i_part]->SetLineWidth(1);
+    if (i_part == 0) {
+      eff_hists_eta[i_part]->SetTitle("Efficiency vs #eta for p_{T} > 0.5 GeV/c; #eta; Efficiency");
+      eff_hists_eta[i_part]->Draw("EP");
+    } else {
+      eff_hists_eta[i_part]->Draw("EP SAME");
+    }
+  }
+  gPad->Update();
+    
+  for (double eff = 0.2; eff <= 1.0; eff += 0.2) {
+    TLine* hline = new TLine(-3, eff, 3, eff);
+    hline->SetLineStyle(kDotted);
+    hline->SetLineColor(TColor::GetColorTransparent(kBlack, 0.4));  // 40% opacity
+    hline->SetLineWidth(1);
+    hline->Draw("same");
+  }
+
+  // Redraw efficiency plots on top of grid lines
+  for (unsigned i_part = 0; i_part < particles.size(); i_part++) {
+    eff_hists_eta[i_part]->Draw("EP SAME");
+  }
+  
+  leg_eff->Draw();
+
+  eff_hists_eta[0]->GetPaintedGraph()->GetXaxis()->SetTitleOffset(1.2);  // avoid axis title overwriting axis labels
+  eff_hists_eta[0]->GetPaintedGraph()->GetYaxis()->SetRangeUser(0, 1.05);
+  eff_hists_eta[0]->GetPaintedGraph()->GetXaxis()->SetRangeUser(-3, 3);
+
+  canvas4->SaveAs(Form("%s/efficiency_vs_eta.pdf", output_dir.Data()));
 }
