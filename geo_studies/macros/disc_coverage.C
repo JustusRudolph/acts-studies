@@ -95,17 +95,22 @@ void disc_coverage(
   std::array<float, nDiscs> xyMax = {400.0, 400.0, 400.0, 750.0, 750.0, 750.0};  // mm
   std::array<float, nDiscs> rMinNominal = {100.0, 100.0, 100.0, 200.0, 200.0, 200.0};  // mm
   std::array<float, nDiscs> rMaxNominal = {350.0, 350.0, 350.0, 680.0, 680.0, 680.0};  // mm
-  const std::array<int, nDiscs> nXYBins = {800, 800, 800, 1500, 1500, 1500};  // 1mm bins
+  // VERY IMPORTANT TO KEEP BIN SIZE TO 1MM FOR COMPARISON WITH STAVE LAYOUTS!
+  const std::array<unsigned, nDiscs> nXYBins = {800, 800, 800, 1500, 1500, 1500};  // 1mm bins
 
   // --- Histograms ---
   // xy hit positions that reach measurements
   std::array<TH2F*, nDiscs> hHitsXY_bwd, hHitsXY_fwd, hMeasXY_bwd, hMeasXY_fwd;
+  std::array<TH2F*, nDiscs> hHitsXY_primary_bwd, hHitsXY_primary_fwd;
   // xy hit positions that do NOT reach measurements
   std::array<TH2F*, nDiscs> hMissXY_bwd, hMissXY_fwd;
   // nHits wrt x and r
   std::array<TH1D*, nDiscs> hnHits_wrtX_bwd, hnHits_wrtX_fwd,
+                            hnHits_wrtX_primary_bwd, hnHits_wrtX_primary_fwd,
                             hnHits_wrtX_Scaled_bwd, hnHits_wrtX_Scaled_fwd,
-                            hnHits_wrtR_bwd, hnHits_wrtR_fwd;
+                            hnHits_wrtX_Scaled_primary_bwd, hnHits_wrtX_Scaled_primary_fwd,
+                            hnHits_wrtR_bwd, hnHits_wrtR_fwd,
+                            hnHits_wrtR_primary_bwd, hnHits_wrtR_primary_fwd;
 
   for (int i = 0; i < nDiscs; i++) {
     hHitsXY_bwd[i] = new TH2F("hHitsXY_" + bwdLabels[i],
@@ -126,26 +131,52 @@ void disc_coverage(
     hMissXY_fwd[i] = new TH2F("hMissXY_" + fwdLabels[i],
                                fwdLabels[i] + " hits not becoming measurements;x (mm);y (mm)",
                                nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
+    hHitsXY_primary_bwd[i] = new TH2F("hHitsXY_primary_" + bwdLabels[i],
+                               bwdLabels[i] + " hitmap from primaries only;x (mm);y (mm)",
+                               nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
+    hHitsXY_primary_fwd[i] = new TH2F("hHitsXY_primary_" + fwdLabels[i],
+                               fwdLabels[i] + " hitmap from primaries only;x (mm);y (mm)",
+                               nXYBins[i], -xyMax[i], xyMax[i], nXYBins[i], -xyMax[i], xyMax[i]);
 
     hnHits_wrtX_bwd[i] = new TH1D("hnHits_wrtX_" + bwdLabels[i],
                                   bwdLabels[i] + " number of hits vs x;x (mm);n hits",
                                   nXYBins[i], -xyMax[i], xyMax[i]);
+    hnHits_wrtX_primary_bwd[i] = new TH1D("hnHits_wrtX_primary_" + bwdLabels[i],
+                                  bwdLabels[i] + " hits from primary particles vs x;x (mm);n hits",
+                                  nXYBins[i], -xyMax[i], xyMax[i]);
     hnHits_wrtX_fwd[i] = new TH1D("hnHits_wrtX_" + fwdLabels[i],
                                   fwdLabels[i] + " number of hits vs x;x (mm);n hits",
+                                  nXYBins[i], -xyMax[i], xyMax[i]);
+    hnHits_wrtX_primary_fwd[i] = new TH1D("hnHits_wrtX_primary_" + fwdLabels[i],
+                                  fwdLabels[i] + " hits from primary particles vs x;x (mm);n hits",
                                   nXYBins[i], -xyMax[i], xyMax[i]);
     hnHits_wrtX_Scaled_bwd[i] =
       new TH1D("hnHits_wrtX_Scaled_" + bwdLabels[i],
                bwdLabels[i] + " number of hits vs x;x (mm);n hits",
                nXYBins[i], -xyMax[i], xyMax[i]);
+    hnHits_wrtX_Scaled_primary_bwd[i] =
+      new TH1D("hnHits_wrtX_Scaled_primary_" + bwdLabels[i],
+               bwdLabels[i] + " hits from primary particles vs x;x (mm);n hits",
+               nXYBins[i], -xyMax[i], xyMax[i]);
     hnHits_wrtX_Scaled_fwd[i] =
       new TH1D("hnHits_wrtX_Scaled_" + fwdLabels[i],
                fwdLabels[i] + " number of hits vs x;x (mm);n hits",
                nXYBins[i], -xyMax[i], xyMax[i]);
+    hnHits_wrtX_Scaled_primary_fwd[i] =
+      new TH1D("hnHits_wrtX_Scaled_primary_" + fwdLabels[i],
+               fwdLabels[i] + " hits from primary particles vs x;x (mm);n hits",
+               nXYBins[i], -xyMax[i], xyMax[i]);
     hnHits_wrtR_bwd[i] = new TH1D("hnHits_wrtR_" + bwdLabels[i],
                                   bwdLabels[i] + " number of hits vs r;r (mm);n hits",
                                   nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+    hnHits_wrtR_primary_bwd[i] = new TH1D("hnHits_wrtR_primary_" + bwdLabels[i],
+                                  bwdLabels[i] + " hits from primary particles vs r;r (mm);n hits",
+                                  nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
     hnHits_wrtR_fwd[i] = new TH1D("hnHits_wrtR_" + fwdLabels[i],
                                   fwdLabels[i] + " number of hits vs r;r (mm);n hits",
+                                  nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+    hnHits_wrtR_primary_fwd[i] = new TH1D("hnHits_wrtR_primary_" + fwdLabels[i],
+                                  fwdLabels[i] + " hits from primary particles vs r;r (mm);n hits",
                                   nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
 
     hHitsXY_bwd[i]->SetStats(false);
@@ -154,12 +185,28 @@ void disc_coverage(
     hMeasXY_fwd[i]->SetStats(false);
     hMissXY_bwd[i]->SetStats(false);
     hMissXY_fwd[i]->SetStats(false);
+    hHitsXY_primary_bwd[i]->SetStats(false);
+    hHitsXY_primary_fwd[i]->SetStats(false);
+
+    hnHits_wrtX_bwd[i]->SetStats(false);
+    hnHits_wrtX_fwd[i]->SetStats(false);
+    hnHits_wrtX_primary_bwd[i]->SetStats(false);
+    hnHits_wrtX_primary_fwd[i]->SetStats(false);
+    hnHits_wrtX_Scaled_bwd[i]->SetStats(false);
+    hnHits_wrtX_Scaled_fwd[i]->SetStats(false);
+    hnHits_wrtX_Scaled_primary_bwd[i]->SetStats(false);
+    hnHits_wrtX_Scaled_primary_fwd[i]->SetStats(false);
+    hnHits_wrtR_bwd[i]->SetStats(false);
+    hnHits_wrtR_fwd[i]->SetStats(false);
+    hnHits_wrtR_primary_fwd[i]->SetStats(false);
+    hnHits_wrtR_primary_bwd[i]->SetStats(false);
+
   }
 
 
   // branch variables
   // hit branches
-  unsigned hit_eventId, hit_particle_idx, hit_layer_id, hit_volume_id;
+  unsigned hit_eventId, hit_particle_idx, hit_layer_id, hit_volume_id, hit_part_gen;
   float hit_x, hit_y, hit_z;
   // measurement branches
   int meas_eventId, meas_layer_id, meas_volume_id;
@@ -193,6 +240,7 @@ void disc_coverage(
     // hit branches
     tHits->SetBranchAddress("event_id", &hit_eventId);
     tHits->SetBranchAddress("barcode_particle", &hit_particle_idx);
+    tHits->SetBranchAddress("barcode_generation", &hit_part_gen);
     tHits->SetBranchAddress("layer_id", &hit_layer_id);
     tHits->SetBranchAddress("volume_id", &hit_volume_id);
     tHits->SetBranchAddress("tx", &hit_x);
@@ -211,7 +259,7 @@ void disc_coverage(
     Long64_t nHits = tHits->GetEntries();
     unsigned nHitsFilled = 0;
     if (debugLevel > 0) std::cout << "DEBUG (1): starting hits loop, nHits="
-                         << nHits << std::flush << std::endl;
+                                  << nHits << std::flush << std::endl;
     for (Long64_t i = 0; i < nHits; i++) {
       if (i % 10000 == 0  && debugLevel > 2)
         std::cout << "DEBUG (3): hits entry " << i << "/"
@@ -250,10 +298,20 @@ void disc_coverage(
         hHitsXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
         hnHits_wrtX_bwd[layer_in_side]->Fill(hit_x);
         hnHits_wrtR_bwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
+        if (hit_part_gen == 0) { // primary particle
+          hHitsXY_primary_bwd[layer_in_side]->Fill(hit_x, hit_y);
+          hnHits_wrtX_primary_bwd[layer_in_side]->Fill(hit_x);
+          hnHits_wrtR_primary_bwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
+        }
       } else if (disc_side == 1) { // forward
         hHitsXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
         hnHits_wrtX_fwd[layer_in_side]->Fill(hit_x);
         hnHits_wrtR_fwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
+        if (hit_part_gen == 0) { // primary particle
+          hHitsXY_primary_fwd[layer_in_side]->Fill(hit_x, hit_y);
+          hnHits_wrtX_primary_fwd[layer_in_side]->Fill(hit_x);
+          hnHits_wrtR_primary_fwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
+        }
       }
       nHitsFilled++;
     }
@@ -450,8 +508,31 @@ void disc_coverage(
     if (debugLevel > 0) std::cout << "DEBUG (0): maps cleared, moving to next file"
                                   << std::flush << std::endl;
   }
+  // now time to scale with r and stave length
+  // an excellent proxy for stave length is the number of non-zero bins in the y
+  // projection at a given x bin. This is the same nominally for all ML and OT respectively
+  std::vector<double> staveLengthsX_ML(nXYBins[0]), staveLengthsX_OT(nXYBins[3]);
+  // use most filled histos for stave length "calculation"
+  for (unsigned i_xy_bin_ml = 0; i_xy_bin_ml < nXYBins[0]; i_xy_bin_ml++) {
+    // get y projection of ML histos at this x bin and count non-empty bins
+    staveLengthsX_ML[i_xy_bin_ml] = 0;
+    for (int i_y_bin = 1; i_y_bin <= nXYBins[0]; i_y_bin++) {
+      if (hnHits_wrtX_bwd[0]->GetBinContent(i_xy_bin_ml, i_y_bin) > 0)
+        staveLengthsX_ML[i_xy_bin_ml]++;
+    }
+  } // loop over x bins for ML
+  for (unsigned i_xy_bin_ot = 0; i_xy_bin_ot < nXYBins[3]; i_xy_bin_ot++) {
+    // get y projection of OT histos at this x bin and count non-empty bins
+    staveLengthsX_OT[i_xy_bin_ot] = 0;
+    for (int i_y_bin = 1; i_y_bin <= nXYBins[3]; i_y_bin++) {
+      if (hnHits_wrtX_fwd[3]->GetBinContent(i_xy_bin_ot, i_y_bin) > 0)
+        staveLengthsX_OT[i_xy_bin_ot]++;
+    }
+  } // loop over x bins for OT
+
   // perform fits on r dependence after all hits are written to later scale x dep
   std::array<TF1*, nDiscs> fitFunc_bwd, fitFunc_fwd;
+  std::array<TF1*, nDiscs> fitFunc_primary_bwd, fitFunc_primary_fwd;
   for (int i = 0; i < nDiscs; i++) {
     // make fit in reduced range to avoid edge effects
     fitFunc_bwd[i] = new TF1("fitFunc_bwd_" + bwdLabels[i], "[0]/pow(x, [1])",
@@ -461,11 +542,21 @@ void disc_coverage(
     // r for restricting range to given r values above
     hnHits_wrtR_bwd[i]->Fit(fitFunc_bwd[i], "QR");
 
+    fitFunc_primary_bwd[i] = new TF1("fitFunc_primary_bwd_" + bwdLabels[i], "[0]/pow(x, [1])",
+                              rMinNominal[i] + 50, rMaxNominal[i] - 50);
+    fitFunc_primary_bwd[i]->SetParameters(hnHits_wrtR_primary_bwd[i]->GetMean(), 1);
+    hnHits_wrtR_primary_bwd[i]->Fit(fitFunc_primary_bwd[i], "QR");
+
     fitFunc_fwd[i] = new TF1("fitFunc_fwd_" + fwdLabels[i], "[0]/pow(x, [1])",
                               rMinNominal[i] + 50, rMaxNominal[i] - 50);
     // start with 1/r dependence
     fitFunc_fwd[i]->SetParameters(hnHits_wrtR_fwd[i]->GetMean(), 1);
     hnHits_wrtR_fwd[i]->Fit(fitFunc_fwd[i], "QR");
+
+    fitFunc_primary_fwd[i] = new TF1("fitFunc_primary_fwd_" + fwdLabels[i], "[0]/pow(x, [1])",
+                              rMinNominal[i] + 50, rMaxNominal[i] - 50);
+    fitFunc_primary_fwd[i]->SetParameters(hnHits_wrtR_primary_fwd[i]->GetMean(), 1);
+    hnHits_wrtR_primary_fwd[i]->Fit(fitFunc_primary_fwd[i], "QR");
   }
 
   // loop over hits again for scaled x dependence
@@ -489,7 +580,15 @@ void disc_coverage(
     tHits->SetBranchAddress("ty", &hit_y);
 
     unsigned nHits = tHits->GetEntries();
+    if (debugLevel > 0) std::cout << "DEBUG (1): hits loop again after fitting: nHits="
+                                  << nHits << std::flush << std::endl;
     for (Long64_t i = 0; i < nHits; i++) {
+      if (i % 10000 == 0  && debugLevel > 2)
+        std::cout << "DEBUG (3): hits entry " << i << "/"
+                  << nHits << std::flush << std::endl;
+      else if (i % 100000 == 0 && debugLevel > 1)
+        std::cout << "DEBUG (2): hits entry " << i << "/"
+                  << nHits << std::flush << std::endl;
       tHits->GetEntry(i);
       unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id);
       if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc hit, ignore
@@ -504,13 +603,32 @@ void disc_coverage(
         continue;
       }
       double r = std::sqrt(hit_x*hit_x + hit_y*hit_y);
-      double scaleFactor = 1.0;
+      double scale_factor_stave_length = 1.0;
+      if (layer_in_side < 3) { // ML
+        scale_factor_stave_length = staveLengthsX_ML[hnHits_wrtX_bwd[0]->FindBin(hit_x)];
+      } else { // OT
+        scale_factor_stave_length = staveLengthsX_OT[hnHits_wrtX_fwd[3]->FindBin(hit_x)];
+      }
+      // "convert" from mm to m, effectively just give neater numbers in plot
+      scale_factor_stave_length /= 1000;
       if (disc_side == 0) { // backward
-        scaleFactor = fitFunc_bwd[layer_in_side]->Eval(r);
-        hnHits_wrtX_Scaled_bwd[layer_in_side]->Fill(hit_x, 1.0/scaleFactor);
+        double scaleFactor = fitFunc_bwd[layer_in_side]->Eval(r);
+        hnHits_wrtX_Scaled_bwd[layer_in_side]->Fill(
+          hit_x, 1.0/(scaleFactor * scale_factor_stave_length));
+        if (hit_part_gen == 0) { // primary particle
+          double scaleFactor = fitFunc_primary_bwd[layer_in_side]->Eval(r);
+          hnHits_wrtX_Scaled_primary_bwd[layer_in_side]->Fill(
+            hit_x, 1.0/(scaleFactor * scale_factor_stave_length));
+        }
       } else if (disc_side == 1) { // forward
-        scaleFactor = fitFunc_fwd[layer_in_side]->Eval(r);
-        hnHits_wrtX_Scaled_fwd[layer_in_side]->Fill(hit_x, 1.0/scaleFactor);
+        double scaleFactor = fitFunc_fwd[layer_in_side]->Eval(r);
+        hnHits_wrtX_Scaled_fwd[layer_in_side]->Fill(
+          hit_x, 1.0/(scaleFactor * scale_factor_stave_length));
+        if (hit_part_gen == 0) { // primary particle
+          double scaleFactor = fitFunc_primary_fwd[layer_in_side]->Eval(r);
+          hnHits_wrtX_Scaled_primary_fwd[layer_in_side]->Fill(
+            hit_x, 1.0/(scaleFactor * scale_factor_stave_length));
+        }
       }
     }  // loop over hits again for scaled x dependence
     fHits->Close();
@@ -522,99 +640,227 @@ void disc_coverage(
   // --- Draw Canvases ---
   // all on different canvases, sorted by path: efficiencies into figures/geo/efficiency_layer
   // hit maps into figures/geo/occupancy_layer
+  // for everything, only make colz log when there are at least 100 files
   TString occupancyOutDir = geo_studies_base + "figures/geo/occupancy_layer/";
   TString efficiencyOutDir = geo_studies_base + "figures/geo/efficiency_layer/";
   for (int i = 0; i < nDiscs; i++) {
     // backward
     TCanvas* c_bwd;
     if (runWithMeasurements) {
-      c_bwd = new TCanvas("c_bwd_" + bwdLabels[i], bwdLabels[i] + " hit coverage", 1200, 400);
+      c_bwd = new TCanvas("c_bwd_" + bwdLabels[i], bwdLabels[i] + " hit coverage", 1400, 400);
       c_bwd->Divide(3,1);
       c_bwd->cd(1);
+      hHitsXY_bwd[i]->SetMinimum(1); // set minimum for log scale to 1
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
       hHitsXY_bwd[i]->Draw("colz");
+      if (pathBases.size() >= 100) gPad->SetLogz();
       hHitsXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
       c_bwd->cd(2);
+      hMeasXY_bwd[i]->SetMinimum(1);
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
       hMeasXY_bwd[i]->Draw("colz");
+      if (pathBases.size() >= 100) gPad->SetLogz();
       hMeasXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Measurement positions;x (mm);y (mm)");
       c_bwd->cd(3);
+      hMissXY_bwd[i]->SetMinimum(1);
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
       hMissXY_bwd[i]->Draw("colz");
+      if (pathBases.size() >= 100) gPad->SetLogz();
       hMissXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Hits not becoming measurements;x (mm);y (mm)");
     } else {
-      c_bwd = new TCanvas("c_bwd_" + bwdLabels[i], bwdLabels[i] + " hit coverage", 600, 600);
+      c_bwd = new TCanvas("c_bwd_" + bwdLabels[i], bwdLabels[i] + " hit coverage", 600, 500);
+      hHitsXY_bwd[i]->SetMinimum(1);
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
       hHitsXY_bwd[i]->Draw("colz");
+      if (pathBases.size() >= 100) gPad->SetLogz();
       hHitsXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
     }
     c_bwd->SaveAs(occupancyOutDir + "xy_hitmap_" + bwdLabels[i] + ".pdf");
 
-    TCanvas* c_hits1D_bwd = new TCanvas("c_hits1D_bwd_" + bwdLabels[i], bwdLabels[i] + " nHits wrt x and r", 1200, 400);
+    TCanvas* c_bwd_primary = new TCanvas(
+      "c_bwd_primary_" + bwdLabels[i], bwdLabels[i] + " hit coverage from primaries", 600, 500);
+    hHitsXY_primary_bwd[i]->SetMinimum(1);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
+    hHitsXY_primary_bwd[i]->Draw("colz");
+    if (pathBases.size() >= 100) gPad->SetLogz();
+    hHitsXY_primary_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Hit positions from primaries;x (mm);y (mm)");
+    c_bwd_primary->SaveAs(occupancyOutDir + "xy_hitmap_primary_" + bwdLabels[i] + ".pdf");
+
+    TCanvas* c_hits1D_bwd = new TCanvas("c_hits1D_bwd_" + bwdLabels[i], bwdLabels[i] + " nHits wrt x and r", 1400, 900);
     // split into three: r dep hits + fit, x dep hits, x dep scaled hits
-    c_hits1D_bwd->Divide(3,1);
+    c_hits1D_bwd->Divide(3,2);
     c_hits1D_bwd->cd(1);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
     hnHits_wrtR_bwd[i]->Draw("EP");
     hnHits_wrtR_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": N_{hits} vs r;r (mm);N_{hits}");
     fitFunc_bwd[i]->Draw("SAME");
     // legend for fit
-    TLegend* legend_bwd = new TLegend(0.6, 0.7, 0.9, 0.9);
+    TLegend* legend_bwd = new TLegend(0.6, 0.6, 0.85, 0.85);
     legend_bwd->AddEntry(hnHits_wrtR_bwd[i], "Hits", "lep");
     TString fitLabel = Form("Fit: #frac{%.1f}{r^{%.2f}}",
                             fitFunc_bwd[i]->GetParameter(0),
                             fitFunc_bwd[i]->GetParameter(1));
     legend_bwd->AddEntry(fitFunc_bwd[i], fitLabel, "l");
+    legend_bwd->SetBorderSize(0);
+    legend_bwd->SetFillStyle(0);
     legend_bwd->Draw();
 
     c_hits1D_bwd->cd(2);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
     hnHits_wrtX_bwd[i]->Draw("EP");
     hnHits_wrtX_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": N_{hits} vs x;x (mm);N_{hits}");
 
     c_hits1D_bwd->cd(3);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
     hnHits_wrtX_Scaled_bwd[i]->Draw("EP");
-    hnHits_wrtX_Scaled_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": N_{hits} vs x scaled;x (mm);N_{hits}");
+    hnHits_wrtX_Scaled_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": N_{hits} vs x (scaled);x (mm);Relative hit density");
+
+    // now the same but for primaries only
+    c_hits1D_bwd->cd(4);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    hnHits_wrtR_primary_bwd[i]->Draw("EP");
+    hnHits_wrtR_primary_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": hits from primaries vs r;r (mm);N_{hits}");
+    fitFunc_primary_bwd[i]->Draw("SAME");
+    // legend for fit
+    TLegend* legend_primary_bwd = new TLegend(0.6, 0.6, 0.85, 0.85);
+    legend_primary_bwd->AddEntry(hnHits_wrtR_primary_bwd[i], "Hits", "lep");
+    TString fitLabel_primary_bwd = Form("Fit: #frac{%.1f}{r^{%.2f}}",
+                                        fitFunc_primary_bwd[i]->GetParameter(0),
+                                        fitFunc_primary_bwd[i]->GetParameter(1));
+    legend_primary_bwd->AddEntry(fitFunc_primary_bwd[i], fitLabel_primary_bwd, "l");
+    legend_primary_bwd->SetBorderSize(0);
+    legend_primary_bwd->SetFillStyle(0);
+    legend_primary_bwd->Draw();
+
+    c_hits1D_bwd->cd(5);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    hnHits_wrtX_primary_bwd[i]->Draw("EP");
+    std::cout << "number of entries in primary bwd hits vs x for " << bwdLabels[i] << ": "
+              << hnHits_wrtX_primary_bwd[i]->GetEntries() << std::endl;
+    hnHits_wrtX_primary_bwd[i]->SetTitle(
+      bwdLabelsInPlot[i] + ": hits from primaries vs x;x (mm);N_{hits}");
+
+    c_hits1D_bwd->cd(6);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    hnHits_wrtX_Scaled_primary_bwd[i]->Draw("EP");
+    hnHits_wrtX_Scaled_primary_bwd[i]->SetTitle(
+      bwdLabelsInPlot[i] + ": hits from primaries vs x (scaled);x (mm);Relative hit density");
+
     c_hits1D_bwd->SaveAs(efficiencyOutDir + "nHits_wrt_X_R_" + bwdLabels[i] + ".pdf");
 
     // forward
     TCanvas* c_fwd;
     if (runWithMeasurements) {
-      c_fwd = new TCanvas("c_fwd_" + fwdLabels[i], fwdLabels[i] + " hit coverage", 1200, 400);
+      c_fwd = new TCanvas("c_fwd_" + fwdLabels[i], fwdLabels[i] + " hit coverage", 1400, 400);
       c_fwd->Divide(3,1);
       c_fwd->cd(1);
+      hHitsXY_fwd[i]->SetMinimum(1); // set minimum for log scale to 1
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
       hHitsXY_fwd[i]->Draw("colz");
+      if (pathBases.size() >= 100) gPad->SetLogz();
       hHitsXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
       c_fwd->cd(2);
+      hMeasXY_fwd[i]->SetMinimum(1);
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
       hMeasXY_fwd[i]->Draw("colz");
+      if (pathBases.size() >= 100) gPad->SetLogz();
       hMeasXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Measurement positions;x (mm);y (mm)");
       c_fwd->cd(3);
+      hMissXY_fwd[i]->SetMinimum(1);
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
       hMissXY_fwd[i]->Draw("colz");
+      if (pathBases.size() >= 100) gPad->SetLogz();
       hMissXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Hits not becoming measurements;x (mm);y (mm)");
     } else {
-      c_fwd = new TCanvas("c_fwd_" + fwdLabels[i], fwdLabels[i] + " hit coverage", 600, 600);
+      c_fwd = new TCanvas("c_fwd_" + fwdLabels[i], fwdLabels[i] + " hit coverage", 600, 500);
+      hHitsXY_fwd[i]->SetMinimum(1);
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
       hHitsXY_fwd[i]->Draw("colz");
+      if (pathBases.size() >= 100) gPad->SetLogz();
       hHitsXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
     }
     c_fwd->SaveAs(occupancyOutDir + "xy_hitmap_" + fwdLabels[i] + ".pdf");
 
-    TCanvas* c_hits1D_fwd = new TCanvas("c_hits1D_fwd_" + fwdLabels[i], fwdLabels[i] + " nHits wrt x and r", 1200, 400);
+    TCanvas* c_fwd_primary = new TCanvas(
+      "c_fwd_primary_" + fwdLabels[i], fwdLabels[i] + " hit coverage for primaries", 600, 500);
+    hHitsXY_primary_fwd[i]->SetMinimum(1);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    gPad->SetRightMargin(0.15);  // important for colz — leaves room for the z-axis palette
+    hHitsXY_primary_fwd[i]->Draw("colz");
+    if (pathBases.size() >= 100) gPad->SetLogz();
+    hHitsXY_primary_fwd[i]->SetTitle(
+      fwdLabelsInPlot[i] + ": Hit positions from primaries only;x (mm);y (mm)");
+    c_fwd_primary->SaveAs(occupancyOutDir + "xy_hitmap_primaries_" + fwdLabels[i] + ".pdf");
+
+    TCanvas* c_hits1D_fwd = new TCanvas(
+      "c_hits1D_fwd_" + fwdLabels[i], fwdLabels[i] + " nHits wrt x and r", 1400, 900);
     // split into three: r dep hits + fit, x dep hits, x dep scaled hits
-    c_hits1D_fwd->Divide(3,1);
+    c_hits1D_fwd->Divide(3,2);
     c_hits1D_fwd->cd(1);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
     hnHits_wrtR_fwd[i]->Draw("EP");
     hnHits_wrtR_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": N_{hits} vs r;r (mm);N_{hits}");
     fitFunc_fwd[i]->Draw("SAME");
     // legend for fit
-    TLegend* legend_fwd = new TLegend(0.6, 0.7, 0.9, 0.9);
+    TLegend* legend_fwd = new TLegend(0.6, 0.6, 0.85, 0.85);
     legend_fwd->AddEntry(hnHits_wrtR_fwd[i], "Hits", "lep");
     TString fitLabel_fwd = Form("Fit: #frac{%.1f}{r^{%.2f}}",
                                 fitFunc_fwd[i]->GetParameter(0),
                                 fitFunc_fwd[i]->GetParameter(1));
     legend_fwd->AddEntry(fitFunc_fwd[i], fitLabel_fwd, "l");
+    legend_fwd->SetBorderSize(0);
+    legend_fwd->SetFillStyle(0);
     legend_fwd->Draw();
 
     c_hits1D_fwd->cd(2);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
     hnHits_wrtX_fwd[i]->Draw("EP");
     hnHits_wrtX_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": N_{hits} vs x;x (mm);N_{hits}");
 
     c_hits1D_fwd->cd(3);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
     hnHits_wrtX_Scaled_fwd[i]->Draw("EP");
-    hnHits_wrtX_Scaled_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": N_{hits} vs x scaled;x (mm);N_{hits}");
+    hnHits_wrtX_Scaled_fwd[i]->SetTitle(
+      fwdLabelsInPlot[i] + ": N_{hits} vs x (scaled);x (mm);Relative hit density");
+    
+    c_hits1D_fwd->cd(4);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    hnHits_wrtR_primary_fwd[i]->Draw("EP");
+    hnHits_wrtR_primary_fwd[i]->SetTitle(
+      fwdLabelsInPlot[i] + ": hits from primaries vs r;r (mm);N_{hits}");
+    fitFunc_primary_fwd[i]->Draw("SAME");
+    // legend for fit
+    TLegend* legend_primary_fwd = new TLegend(0.6, 0.6, 0.85, 0.85);
+    legend_primary_fwd->AddEntry(hnHits_wrtR_primary_fwd[i], "Hits", "lep");
+    TString fitLabel_primary_fwd = Form("Fit: #frac{%.1f}{r^{%.2f}}",
+                                        fitFunc_primary_fwd[i]->GetParameter(0),
+                                        fitFunc_primary_fwd[i]->GetParameter(1));
+    legend_primary_fwd->AddEntry(fitFunc_primary_fwd[i], fitLabel_primary_fwd, "l");
+    legend_primary_fwd->SetBorderSize(0);
+    legend_primary_fwd->SetFillStyle(0);
+    legend_primary_fwd->Draw();
+
+    c_hits1D_fwd->cd(5);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    hnHits_wrtX_primary_fwd[i]->Draw("EP");
+    hnHits_wrtX_primary_fwd[i]->SetTitle(
+      fwdLabelsInPlot[i] + ": hits from primaries vs x;x (mm);N_{hits}");
+
+    c_hits1D_fwd->cd(6);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    hnHits_wrtX_Scaled_primary_fwd[i]->Draw("EP");
+    hnHits_wrtX_Scaled_primary_fwd[i]->SetTitle(
+      fwdLabelsInPlot[i] + ": hits from primaries vs x (scaled);x (mm);Relative hit density");
+    
     c_hits1D_fwd->SaveAs(efficiencyOutDir + "nHits_wrt_X_R_" + fwdLabels[i] + ".pdf");
   }
 }
