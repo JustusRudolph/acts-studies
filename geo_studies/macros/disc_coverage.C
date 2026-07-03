@@ -72,6 +72,8 @@ void disc_coverage(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool onSTBC=false,
   const bool runWithMeasurements=false,
+  const float toleranceML_mm = 3.4,
+  const float toleranceOT_mm = 3.4,  // by how much we can go outside nominal outer radius
   const unsigned debugLevel=0)  // 0 nothing, 1 some, 2 many, 3 all debug prints
 {
   const TString base             = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
@@ -95,8 +97,27 @@ void disc_coverage(
   std::array<float, nDiscs> xyMax = {400.0, 400.0, 400.0, 750.0, 750.0, 750.0};  // mm
   std::array<float, nDiscs> rMinNominal = {100.0, 100.0, 100.0, 200.0, 200.0, 200.0};  // mm
   std::array<float, nDiscs> rMaxNominal = {350.0, 350.0, 350.0, 680.0, 680.0, 680.0};  // mm
+  std::array<float, nDiscs> rMaxWithTolerance;
+  for (int i = 0; i < nDiscs; i++) {
+    if (i < 3) { // ML
+      rMaxWithTolerance[i] = rMaxNominal[i] + toleranceML_mm;
+    } else { // OT
+      rMaxWithTolerance[i] = rMaxNominal[i] + toleranceOT_mm;
+    }
+  }
   // VERY IMPORTANT TO KEEP BIN SIZE TO 1MM FOR COMPARISON WITH STAVE LAYOUTS!
-  const std::array<unsigned, nDiscs> nXYBins = {800, 800, 800, 1500, 1500, 1500};  // 1mm bins
+  float binSize_mm = 1.0;  // mm
+  std::array<unsigned, nDiscs> nXYBins;
+  for (int i = 0; i < nDiscs; i++) {
+    nXYBins[i] = static_cast<unsigned>(2 * xyMax[i] / binSize_mm);
+  }
+  if (debugLevel >= 1) {
+    std::cout << "Using bin size of " << binSize_mm << " mm, resulting in nXYBins: ";
+    for (int i = 0; i < nDiscs; i++) {
+      std::cout << nXYBins[i] << " ";
+    }
+    std::cout << std::endl;
+  }
 
   // --- Histograms ---
   // xy hit positions that reach measurements
@@ -111,6 +132,20 @@ void disc_coverage(
                             hnHits_wrtX_Scaled_primary_bwd, hnHits_wrtX_Scaled_primary_fwd,
                             hnHits_wrtR_bwd, hnHits_wrtR_fwd,
                             hnHits_wrtR_primary_bwd, hnHits_wrtR_primary_fwd;
+  std::array<TEfficiency*, nDiscs> effDisc_bwd_wrt_r, effDisc_fwd_wrt_r;
+
+  TEfficiency* effDisc_bwd_nominal = new TEfficiency(
+    "effDisc_bwd", "Hit efficiency by backward layer;Backward disc layer;Efficiency",
+    nDiscs, -0.5, nDiscs - 0.5);
+  TEfficiency* effDisc_fwd_nominal = new TEfficiency(
+    "effDisc_fwd", "Hit efficiency by forward layer;Forward disc layer;Efficiency",
+    nDiscs, -0.5, nDiscs - 0.5);
+  TEfficiency* effDisc_bwd_outer_ring = new TEfficiency(
+    "effDisc_bwd_outer_ring", "Hit efficiency by backward layer (outer ring);Backward disc layer;Efficiency",
+    nDiscs, -0.5, nDiscs - 0.5);
+  TEfficiency* effDisc_fwd_outer_ring = new TEfficiency(
+    "effDisc_fwd_outer_ring", "Hit efficiency by forward layer (outer ring);Forward disc layer;Efficiency",
+    nDiscs, -0.5, nDiscs - 0.5);
 
   for (int i = 0; i < nDiscs; i++) {
     hHitsXY_bwd[i] = new TH2F("hHitsXY_" + bwdLabels[i],
@@ -178,6 +213,15 @@ void disc_coverage(
     hnHits_wrtR_primary_fwd[i] = new TH1D("hnHits_wrtR_primary_" + fwdLabels[i],
                                   fwdLabels[i] + " hits from primary particles vs r;r (mm);n hits",
                                   nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+
+    effDisc_bwd_wrt_r[i] = new TEfficiency(
+      "effDisc_bwd_" + bwdLabels[i],
+      bwdLabelsInPlot[i] + " hit efficiency;x (mm);Efficiency",
+      50, 0, xyMax[i]);
+    effDisc_fwd_wrt_r[i] = new TEfficiency(
+      "effDisc_fwd_" + fwdLabels[i],
+      fwdLabelsInPlot[i] + " hit efficiency;x (mm);Efficiency",
+      50, 0, xyMax[i]);
 
     hHitsXY_bwd[i]->SetStats(false);
     hHitsXY_fwd[i]->SetStats(false);
@@ -634,6 +678,33 @@ void disc_coverage(
     fHits->Close();
   }  // loop over files again for scaled x dependence
 
+  // now fill efficiency by layer histograms after we have all the hits processed
+  for (unsigned i_disc = 0; i_disc < nDiscs; i_disc++) {
+    for (unsigned i_xbin = 0; i_xbin < nXYBins[i_disc]; i_xbin++) {
+      for (unsigned i_ybin = 0; i_ybin < nXYBins[i_disc]; i_ybin++) {
+        unsigned nHits_bwd = hHitsXY_bwd[i_disc]->GetBinContent(i_xbin, i_ybin);
+        unsigned nHits_fwd = hHitsXY_fwd[i_disc]->GetBinContent(i_xbin, i_ybin);
+        // bin positions are identical for backward and forward since they have the same binning
+        float x_mm = hHitsXY_bwd[i_disc]->GetXaxis()->GetBinCenter(i_xbin);
+        float y_mm = hHitsXY_bwd[i_disc]->GetYaxis()->GetBinCenter(i_ybin);
+        float r_mm = std::sqrt(x_mm * x_mm + y_mm * y_mm);
+        effDisc_bwd_wrt_r[i_disc]->Fill(nHits_bwd > 0, r_mm);
+        effDisc_fwd_wrt_r[i_disc]->Fill(nHits_fwd > 0, r_mm);
+        if (r_mm < rMinNominal[i_disc]) {
+          continue;
+        } else if (r_mm < rMaxNominal[i_disc]) {
+          // larger than inner, smaller than outer: fill nominal eff histos
+          effDisc_bwd_nominal->Fill(nHits_bwd > 0, i_disc);
+          effDisc_fwd_nominal->Fill(nHits_fwd > 0, i_disc);
+        } else if (r_mm < rMaxWithTolerance[i_disc]) {
+          // larger than outer, smaller than extended/with tolerance: fill extended eff histos
+          effDisc_bwd_outer_ring->Fill(nHits_bwd > 0, i_disc);
+          effDisc_fwd_outer_ring->Fill(nHits_fwd > 0, i_disc);
+        }  // region checking
+      }  // loop over y bins
+    }  // loop over x bins
+  }  // loop over discs
+
   if (debugLevel > 0) std::cout << "DEBUG (0): all files processed, starting drawing"
                                 << std::flush << std::endl;
 
@@ -753,6 +824,12 @@ void disc_coverage(
 
     c_hits1D_bwd->SaveAs(efficiencyOutDir + "nHits_wrt_X_R_" + bwdLabels[i] + ".pdf");
 
+    TCanvas* c_eff_bwd = new TCanvas("c_eff_bwd_" + bwdLabels[i], bwdLabels[i] + " efficiency vs r", 600, 500);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    effDisc_bwd_wrt_r[i]->Draw("EP");
+    effDisc_bwd_wrt_r[i]->SetTitle(bwdLabelsInPlot[i] + ": Efficiency vs r;r (mm);Efficiency");
+    c_eff_bwd->SaveAs(efficiencyOutDir + "efficiency_vs_r_" + bwdLabels[i] + ".pdf");
+
     // forward
     TCanvas* c_fwd;
     if (runWithMeasurements) {
@@ -862,5 +939,37 @@ void disc_coverage(
       fwdLabelsInPlot[i] + ": hits from primaries vs x (scaled);x (mm);Relative hit density");
     
     c_hits1D_fwd->SaveAs(efficiencyOutDir + "nHits_wrt_X_R_" + fwdLabels[i] + ".pdf");
+
+    TCanvas* c_eff_fwd = new TCanvas("c_eff_fwd_" + fwdLabels[i], fwdLabels[i] + " efficiency vs r", 600, 500);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    effDisc_fwd_wrt_r[i]->Draw("EP");
+    effDisc_fwd_wrt_r[i]->SetTitle(fwdLabelsInPlot[i] + ": Efficiency vs r;r (mm);Efficiency");
+    c_eff_fwd->SaveAs(efficiencyOutDir + "efficiency_vs_r_" + fwdLabels[i] + ".pdf");
   }
+  // now draw the layer hit efficiency histograms
+  TCanvas* c_eff = new TCanvas("c_eff", "Hit efficiency by layer", 1400, 600);
+  c_eff->Divide(2,1);
+  c_eff->cd(1);
+  effDisc_bwd_nominal->Draw("EP");
+  effDisc_bwd_nominal->SetLineColor(kBlue);
+  effDisc_bwd_nominal->SetTitle("Hit efficiency by layer for nominal acceptance;\
+                                 Layer;Efficiency");
+  effDisc_fwd_nominal->Draw("EP SAME");
+  effDisc_fwd_nominal->SetLineColor(kRed);
+  // legend for both
+  TLegend* legend_hiteff = new TLegend(0.6, 0.6, 0.85, 0.85);
+  legend_hiteff->AddEntry(effDisc_bwd_nominal, "Backward", "lep");
+  legend_hiteff->AddEntry(effDisc_fwd_nominal, "Forward", "lep");
+  legend_hiteff->SetBorderSize(0);
+  legend_hiteff->SetFillStyle(0);
+  legend_hiteff->Draw();
+  c_eff->cd(2);
+  effDisc_bwd_outer_ring->Draw("EP");
+  effDisc_bwd_outer_ring->SetLineColor(kBlue);
+  effDisc_bwd_outer_ring->SetTitle("Hit efficiency by layer for tolerance region;\
+                                    Layer;Efficiency");
+  effDisc_fwd_outer_ring->Draw("EP SAME");
+  effDisc_fwd_outer_ring->SetLineColor(kRed);
+  legend_hiteff->Draw();
+  c_eff->SaveAs(efficiencyOutDir + "hit_efficiency_by_layer.pdf");
 }
