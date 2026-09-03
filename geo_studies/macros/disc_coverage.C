@@ -308,6 +308,7 @@ void disc_coverage(
   // maps to fill and clear after each file
   HitPosMap hitPosMap;
   HitPosMap measPosMap;
+  unsigned nEventsTotal = 0;
 
 
   // --- Event loop over all input files ---
@@ -339,17 +340,37 @@ void disc_coverage(
       std::cerr << "File was recovered by ROOT: " << hitsFile << " — skipping" << std::endl;
       fHits->Close(); continue;
     }
-    TFile* fMeas = TFile::Open(measurementsFile);
-    if (!fMeas || fMeas->IsZombie()) { std::cerr << "Cannot open " << measurementsFile << " — skipping" << std::endl; fHits->Close(); continue; }
-    if (fMeas->TestBit(TFile::kRecovered)) {
-      std::cerr << "File was recovered by ROOT: " << measurementsFile << " — skipping" << std::endl;
-      fHits->Close(); fMeas->Close(); continue;
+    TFile* fMeas = nullptr;
+    TTree* tMeas;
+    if (runWithMeasurements) {
+      fMeas = TFile::Open(measurementsFile);
+      if (!fMeas || fMeas->IsZombie()) { std::cerr << "Cannot open " << measurementsFile << " — skipping" << std::endl; fHits->Close(); continue; }
+      if (fMeas->TestBit(TFile::kRecovered)) {
+        std::cerr << "File was recovered by ROOT: " << measurementsFile << " — skipping" << std::endl;
+        fHits->Close(); fMeas->Close(); continue;
+      }
     }
 
     TTree* tHits = (TTree*)fHits->Get("hits");
-    if (!tHits) { std::cerr << "hits tree not found in " << hitsFile << " — skipping" << std::endl; fHits->Close(); fMeas->Close(); continue; }
-    TTree* tMeas = (TTree*)fMeas->Get("measurements");
-    if (!tMeas) { std::cerr << "measurements tree not found in " << measurementsFile << " — skipping" << std::endl; fHits->Close(); fMeas->Close(); continue; }
+    if (!tHits) { std::cerr << "hits tree not found in " << hitsFile << " — skipping" << std::endl; fHits->Close(); continue; }
+
+    TFile* fMeas = nullptr;
+    TTree* tMeas;
+    if (runWithMeasurements) {
+      fMeas = TFile::Open(measurementsFile);
+      if (!fMeas || fMeas->IsZombie()) {
+        std::cerr << "Cannot open " << measurementsFile << " — skipping"
+                  << std::endl; fMeas->Close(); continue;
+      } else {  // want to use measurements and the file is alive
+        tMeas = (TTree*)fMeas->Get("measurements");
+        if (!tMeas) {
+          std::cerr << "measurements tree not found in " << measurementsFile
+                    << " — skipping" << std::endl;
+          fHits->Close(); fMeas->Close();
+          continue;
+        }
+      }
+    }
 
     // hit branches
     tHits->SetBranchAddress("event_id", &hit_eventId);
@@ -361,13 +382,15 @@ void disc_coverage(
     tHits->SetBranchAddress("ty", &hit_y);
     tHits->SetBranchAddress("tz", &hit_z);
     // measurement branches
-    tMeas->SetBranchAddress("event_nr", &meas_eventId);
-    tMeas->SetBranchAddress("particles_particle", &meas_particle_idx);
-    tMeas->SetBranchAddress("layer_id", &meas_layer_id);
-    tMeas->SetBranchAddress("volume_id", &meas_volume_id);
-    tMeas->SetBranchAddress("true_x", &meas_true_x);
-    tMeas->SetBranchAddress("true_y", &meas_true_y);
-    tMeas->SetBranchAddress("true_z", &meas_true_z);
+    if (runWithMeasurements) {
+      tMeas->SetBranchAddress("event_nr", &meas_eventId);
+      tMeas->SetBranchAddress("particles_particle", &meas_particle_idx);
+      tMeas->SetBranchAddress("layer_id", &meas_layer_id);
+      tMeas->SetBranchAddress("volume_id", &meas_volume_id);
+      tMeas->SetBranchAddress("true_x", &meas_true_x);
+      tMeas->SetBranchAddress("true_y", &meas_true_y);
+      tMeas->SetBranchAddress("true_z", &meas_true_z);
+    }
 
     // Loop over hits and fill maps
     Long64_t nHits = tHits->GetEntries();
@@ -614,7 +637,7 @@ void disc_coverage(
     }  // if runWithMeasurements
 
     fHits->Close();
-    fMeas->Close();
+    if (runWithMeasurements) fMeas->Close();
 
     // this file contributed a complete set of events
     nFilesAccepted++;
