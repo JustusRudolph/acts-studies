@@ -71,6 +71,8 @@ bool hit_measurement_match(Pos hit_pos, Pos meas_pos,
 void disc_coverage(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool onSTBC=false,
+  const float collision_rate=2400.,  // in kHz (change for PbPb)
+  const unsigned nEvents=1000000,
   const bool runWithMeasurements=false,
   const float toleranceML_mm = 3.4,
   const float toleranceOT_mm = 3.4,  // by how much we can go outside nominal outer radius
