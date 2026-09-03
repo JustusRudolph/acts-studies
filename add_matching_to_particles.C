@@ -10,7 +10,9 @@
 void add_matching_to_particles(
   const TString pathToFilesFromOutput = "geo_staves_pi_1GeV_eta14-20",
   const bool onSTBC = false,
-  const bool checkPrimaryOnly=true)
+  const bool useIterativeTracking=true,  // changes name of perf files
+  const bool checkPrimaryOnly=true,
+  const bool useDigitisedParticles=false)
 {
 
   TString base = "/home/justus/projects/alice/ACTSO2/output/";
@@ -18,11 +20,17 @@ void add_matching_to_particles(
     base = "/data/alice/jrudolph/alice/ACTSO2/output/";
   }
   const TString simFile  = base + pathToFilesFromOutput
-                         + "/particles_digitized_selected.root";
+                         + (useDigitisedParticles ?
+                              "/particles_digitized_selected.root" :
+                              "/particles_simulated_selected.root");
   const TString perfAmbiFile = base + pathToFilesFromOutput
-                         + "/performance_finding_ambi.root";
+                         + (useIterativeTracking ?
+                            "/performance_merged_ambi_tracks.root" :
+                            "/performance_finding_ambi.root");
   const TString perfSeedFile = base + pathToFilesFromOutput
-                         + "/performance_seeding.root";
+                         + (useIterativeTracking ?
+                            "/performance_merged_seed.root" :
+                            "/performance_seeding.root");
   const TString outFile  = base + pathToFilesFromOutput
                          + "/particles_matched.root";
   // --- Step 1: build lookup map from matchingdetails ---
@@ -50,27 +58,23 @@ void add_matching_to_particles(
   // particle is a scalar value in matchingdetails
   uint32_t perfParticle;
   uint32_t perfEventId;
-  std::vector<uint32_t>* matchedIdxs     = nullptr;
-  std::vector<double>*   matchedWeights  = nullptr;
-  std::vector<uint32_t>* fakeIdxs        = nullptr;
-  std::vector<double>*   fakeWeights     = nullptr;
+  bool perfMatched;
 
   uint32_t seedPerfParticle;
   uint32_t seedPerfEventId;
-  std::vector<uint32_t>* seedMatchedIdxs     = nullptr;
-  std::vector<double>*   seedMatchedWeights  = nullptr;
-  std::vector<uint32_t>* seedFakeIdxs        = nullptr;
-  std::vector<double>*   seedFakeWeights     = nullptr;
+  bool seedPerfMatched;
 
   // set other branch addresses later to avoid loading vectors for this step
   tPerf->SetBranchAddress("event_nr", &perfEventId);
   tPerf->SetBranchAddress("particle_id_particle", &perfParticle);
+  tPerf->SetBranchAddress("matched", &perfMatched);
   tSeedPerf->SetBranchAddress("event_nr", &seedPerfEventId);
   tSeedPerf->SetBranchAddress("particle_id_particle", &seedPerfParticle);
+  tSeedPerf->SetBranchAddress("matched", &seedPerfMatched);
 
-  // Nth entry in the vector corresponds to event N
-  // map is (particle_id) ->  idx of matched & fake tracks in global matchingdetails tree
-  using MatchMap = std::unordered_map<unsigned, std::map<unsigned, unsigned>>;
+  // each key in outer map is event
+  // inner map is (particle_id) ->  matched bool
+  using MatchMap = std::unordered_map<unsigned, std::map<unsigned, bool>>;
   MatchMap matchMap(tPerf->GetEntries());
   MatchMap seedMatchMap(tSeedPerf->GetEntries());
 
@@ -85,7 +89,7 @@ void add_matching_to_particles(
     if (matchMap.find(perfEventId) == matchMap.end()) {
       matchMap[perfEventId] = {};
     }
-    matchMap[perfEventId][perfParticle] = i;
+    matchMap[perfEventId][perfParticle] = perfMatched;
   }
   std::cout << "Loaded " << matchMap.size()
             << " entries from ambi matchingdetails" << std::endl;
@@ -97,7 +101,7 @@ void add_matching_to_particles(
     if (seedMatchMap.find(seedPerfEventId) == seedMatchMap.end()) {
       seedMatchMap[seedPerfEventId] = {};
     }
-    seedMatchMap[seedPerfEventId][seedPerfParticle] = i;
+    seedMatchMap[seedPerfEventId][seedPerfParticle] = seedPerfMatched;
   }
   std::cout << "Loaded " << seedMatchMap.size()
             << " entries from seeding matchingdetails" << std::endl;
@@ -116,35 +120,14 @@ void add_matching_to_particles(
   std::vector<unsigned>* simParticle = nullptr;
   std::vector<unsigned>* simGeneration = nullptr;
   unsigned simEventId;
+  std::vector<bool> outMatched;
+  std::vector<bool> outSeedMatched;
 
   tSim->SetBranchAddress("event_id", &simEventId);
   tSim->SetBranchAddress("particle", &simParticle);
   tSim->SetBranchAddress("generation", &simGeneration);
-
-  tPerf->SetBranchAddress("matched_track_idxs",     &matchedIdxs);
-  tPerf->SetBranchAddress("matched_track_weights",  &matchedWeights);
-  tPerf->SetBranchAddress("fake_track_idxs",        &fakeIdxs);
-  tPerf->SetBranchAddress("fake_track_weights",     &fakeWeights);
-  tSeedPerf->SetBranchAddress("matched_track_idxs",     &seedMatchedIdxs);
-  tSeedPerf->SetBranchAddress("matched_track_weights",  &seedMatchedWeights);
-  tSeedPerf->SetBranchAddress("fake_track_idxs",        &seedFakeIdxs);
-  tSeedPerf->SetBranchAddress("fake_track_weights",     &seedFakeWeights);
-  std::vector<std::vector<unsigned>> outMatchedIdxs;
-  std::vector<std::vector<double>>   outMatchedWeights;
-  std::vector<std::vector<unsigned>> outFakeIdxs;
-  std::vector<std::vector<double>>   outFakeWeights;
-  std::vector<std::vector<unsigned>> outSeedMatchedIdxs;
-  std::vector<std::vector<double>>   outSeedMatchedWeights;
-  std::vector<std::vector<unsigned>> outSeedFakeIdxs;
-  std::vector<std::vector<double>>   outSeedFakeWeights;
-  tOut->Branch("matched_track_idxs",    &outMatchedIdxs);
-  tOut->Branch("matched_track_weights", &outMatchedWeights);
-  tOut->Branch("fake_track_idxs",       &outFakeIdxs);
-  tOut->Branch("fake_track_weights",    &outFakeWeights);
-  tOut->Branch("seed_matched_track_idxs",    &outSeedMatchedIdxs);
-  tOut->Branch("seed_matched_track_weights", &outSeedMatchedWeights);
-  tOut->Branch("seed_fake_track_idxs",       &outSeedFakeIdxs);
-  tOut->Branch("seed_fake_track_weights",    &outSeedFakeWeights);
+  tOut->Branch("matched", &outMatched);
+  tOut->Branch("seed_matched", &outSeedMatched);
 
   Long64_t nSim   = tSim->GetEntries();
   Long64_t nFound = 0;
@@ -158,88 +141,54 @@ void add_matching_to_particles(
                 << " events. Found matches for " << nFound
                 << " particles." << std::endl;
     }
-    
-    if (!simParticle->empty()) {  // There are particles in this event
+    if (simParticle->empty()) {  // There are no particles in this event
+      tOut->Fill();  // fill the empty vectors, as we need one per event
+      continue;
+    }
+    // set matched output vectors to default false for each particle
+    outMatched.resize(simParticle->size(), false);
+    outSeedMatched.resize(simParticle->size(), false);
+    auto itEvent = matchMap.find(simEventId);
+
+    // check each particle in event only if event has matching entry
+    if (itEvent != matchMap.end()) {
       for (unsigned i_part = 0; i_part < simParticle->size(); i_part++) {
-        unsigned simPID = (*simParticle)[i_part];
+        // If only checking primaries, skip particle if generation is not 0
         if (checkPrimaryOnly && (*simGeneration)[i_part] != 0) {
-          // If we're only checking primaries, skip particle if generation is not 0
-          outMatchedIdxs.push_back({});
-          outMatchedWeights.push_back({});
-          outFakeIdxs.push_back({});
-          outFakeWeights.push_back({});
-          outSeedMatchedIdxs.push_back({});
-          outSeedMatchedWeights.push_back({});
-          outSeedFakeIdxs.push_back({});
-          outSeedFakeWeights.push_back({});
           continue;
         }
         nParticlesTotal++;
-        auto itEvent = matchMap.find(simEventId);
-        if (itEvent != matchMap.end()) { // at least one particle has match
-          auto itPID = itEvent->second.find(simPID);
-          if (itPID != itEvent->second.end()) {
-            unsigned perfIdx = itPID->second;
-            tPerf->GetEntry(perfIdx);
-            // deep copy vectors to output vectors
-            outMatchedIdxs.push_back(std::vector<unsigned>(*matchedIdxs));
-            outMatchedWeights.push_back(std::vector<double>(*matchedWeights));
-            outFakeIdxs.push_back(std::vector<unsigned>(*fakeIdxs));
-            outFakeWeights.push_back(std::vector<double>(*fakeWeights));
-            // std::cout << "Primary matched index for ev " << simEventId << " particle "
-            //           << simPID << ": " << (*matchedIdxs)[0]
-            //           << " with weight " << (*matchedWeights)[0] << std::endl;
-            nFound++;
-          } else { // no match for this particle id
-            outMatchedIdxs.push_back({});
-            outMatchedWeights.push_back({});
-            outFakeIdxs.push_back({});
-            outFakeWeights.push_back({});
-          }
-        }  // else: no match for this simulated particle: fill empty vectors
-        else {
-          outMatchedIdxs.push_back({});
-          outMatchedWeights.push_back({});
-          outFakeIdxs.push_back({});
-          outFakeWeights.push_back({});
+        
+        unsigned simPID = (*simParticle)[i_part];
+        auto itPID = itEvent->second.find(simPID);
+        // this simPID has an entry? sanity check since they all should have
+        if (itPID != itEvent->second.end()) {
+          outMatched[i_part] = itPID->second;
+          nFound++;
         }
-        // now add seeding eff
-        auto itSeedEvent = seedMatchMap.find(simEventId);
-        if (itSeedEvent != seedMatchMap.end()) { // at least one particle has match
-          auto itSeedPID = itSeedEvent->second.find(simPID);
-          if (itSeedPID != itSeedEvent->second.end()) {
-            unsigned seedPerfIdx = itSeedPID->second;
-            tSeedPerf->GetEntry(seedPerfIdx);
-            outSeedMatchedIdxs.push_back(std::vector<unsigned>(*seedMatchedIdxs));
-            outSeedMatchedWeights.push_back(std::vector<double>(*seedMatchedWeights));
-            outSeedFakeIdxs.push_back(std::vector<unsigned>(*seedFakeIdxs));
-            outSeedFakeWeights.push_back(std::vector<double>(*seedFakeWeights));
-            nSeedFound++;
-          } else { // no match for this particle id
-            outSeedMatchedIdxs.push_back({});
-            outSeedMatchedWeights.push_back({});
-            outSeedFakeIdxs.push_back({});
-            outSeedFakeWeights.push_back({});
-          }
-        }  // else: no match for this simulated particle: fill empty vectors
-        else {
-          outSeedMatchedIdxs.push_back({});
-          outSeedMatchedWeights.push_back({});
-          outSeedFakeIdxs.push_back({});
-          outSeedFakeWeights.push_back({});
+      }
+    }
+
+    auto itSeedEvent = seedMatchMap.find(simEventId);
+    // event has matched seeds
+    if (itSeedEvent != seedMatchMap.end()) {
+      for (unsigned i_part = 0; i_part < simParticle->size(); i_part++) {
+        if (checkPrimaryOnly && (*simGeneration)[i_part] != 0) {
+          continue;
         }
-      }  // loop over simulated particles in event
+        unsigned simPID = (*simParticle)[i_part];
+        auto itSeedPID = itSeedEvent->second.find(simPID);
+        // this simPID has an entry? sanity check since they all should have
+        if (itSeedPID != itSeedEvent->second.end()) {
+          outSeedMatched[i_part] = itSeedPID->second;
+          nSeedFound++;
+        }
+      }
     }
     tOut->Fill();
-
-    outMatchedIdxs.clear();
-    outMatchedWeights.clear();
-    outFakeIdxs.clear();
-    outFakeWeights.clear();
-    outSeedMatchedIdxs.clear();
-    outSeedMatchedWeights.clear();
-    outSeedFakeIdxs.clear();
-    outSeedFakeWeights.clear();
+    // empty the vectors for next event
+    outMatched.clear();
+    outSeedMatched.clear();
   }
 
   fOut->Write();
