@@ -134,6 +134,8 @@ void disc_coverage(
                             hnHits_wrtX_Scaled_primary_bwd, hnHits_wrtX_Scaled_primary_fwd,
                             hnHits_wrtR_bwd, hnHits_wrtR_fwd,
                             hnHits_wrtR_primary_bwd, hnHits_wrtR_primary_fwd;
+  // hit rate per unit area wrt r, derived from hnHits_wrtR after the event loop
+  std::array<TH1D*, nDiscs> hHitRate_wrtR_bwd, hHitRate_wrtR_fwd;
   std::array<TEfficiency*, nDiscs> effDisc_bwd_wrt_r, effDisc_fwd_wrt_r;
 
   TEfficiency* effDisc_bwd_nominal = new TEfficiency(
@@ -215,6 +217,13 @@ void disc_coverage(
     hnHits_wrtR_primary_fwd[i] = new TH1D("hnHits_wrtR_primary_" + fwdLabels[i],
                                   fwdLabels[i] + " hits from primary particles vs r;r (mm);n hits",
                                   nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+    // same binning as hnHits_wrtR so the rate is a straight per-bin rescaling
+    hHitRate_wrtR_bwd[i] = new TH1D("hHitRate_wrtR_" + bwdLabels[i],
+                                  bwdLabels[i] + " hit rate vs r;r (mm);hit rate (cm^{-2} s^{-1})",
+                                  nXYBins[i], 0, xyMax[i]);
+    hHitRate_wrtR_fwd[i] = new TH1D("hHitRate_wrtR_" + fwdLabels[i],
+                                  fwdLabels[i] + " hit rate vs r;r (mm);hit rate (cm^{-2} s^{-1})",
+                                  nXYBins[i], 0, xyMax[i]);
 
     effDisc_bwd_wrt_r[i] = new TEfficiency(
       "effDisc_bwd_" + bwdLabels[i],
@@ -246,6 +255,8 @@ void disc_coverage(
     hnHits_wrtR_fwd[i]->SetStats(false);
     hnHits_wrtR_primary_fwd[i]->SetStats(false);
     hnHits_wrtR_primary_bwd[i]->SetStats(false);
+    hHitRate_wrtR_bwd[i]->SetStats(false);
+    hHitRate_wrtR_fwd[i]->SetStats(false);
 
   }
 
@@ -710,6 +721,35 @@ void disc_coverage(
   if (debugLevel > 0) std::cout << "DEBUG (0): all files processed, starting drawing"
                                 << std::flush << std::endl;
 
+  // --- Hit rate per unit area wrt r ---
+  // The bin content of hnHits_wrtR is a count, i.e. the integral of dN/dr over the
+  // bin, so dividing by the ring area 2*pi*r_c*dr turns it into a surface density.
+  // Counts are then turned into a rate using the collision rate and the events considered.
+  // I.e., we are converting the hit counts over N events to a rate using the nominal
+  // rate and dividing by the number of events considered
+  const double collisionRate_Hz = collision_rate * 1e3;  // kHz -> Hz
+  const double rate_scale_factor = collisionRate_Hz / static_cast<double>(nEvents);
+  for (int i = 0; i < nDiscs; i++) {
+    for (int side = 0; side < 2; side++) {  // 0 backward, 1 forward
+      TH1D* hCounts = (side == 0) ? hnHits_wrtR_bwd[i] : hnHits_wrtR_fwd[i];
+      TH1D* hRate   = (side == 0) ? hHitRate_wrtR_bwd[i] : hHitRate_wrtR_fwd[i];
+      for (int bin = 1; bin <= hCounts->GetNbinsX(); bin++) {
+        const double r_cm  = hCounts->GetBinCenter(bin) / 10.0;  // mm -> cm
+        const double dr_cm = hCounts->GetBinWidth(bin) / 10.0;   // mm -> cm
+        const double ringArea_cm2 = 2 * TMath::Pi() * r_cm * dr_cm;
+        if (ringArea_cm2 <= 0) {
+          std::cerr << "ERROR: ring area is non-positive (r_cm = "
+                    << r_cm << ", dr_cm = " << dr_cm << ")" << std::endl;
+          return;
+        }
+        const double scale = rate_scale_factor / ringArea_cm2;
+        hRate->SetBinContent(bin, hCounts->GetBinContent(bin) * scale);
+        // constant divisor per bin, so the relative (Poisson) error is unchanged
+        hRate->SetBinError(bin, hCounts->GetBinError(bin) * scale);
+      }
+    }
+  }
+
   // --- Draw Canvases ---
   // all on different canvases, sorted by path: efficiencies into figures/geo/efficiency_layer
   // hit maps into figures/geo/occupancy_layer
@@ -974,4 +1014,27 @@ void disc_coverage(
   effDisc_fwd_outer_ring->SetLineColor(kRed);
   legend_hiteff->Draw();
   c_eff->SaveAs(efficiencyOutDir + "hit_efficiency_by_layer.pdf");
+
+  // now the hit rate per unit area vs r, all six discs of a side on one canvas
+  TCanvas* c_rate_bwd = new TCanvas("c_rate_bwd", "Backward hit rate vs r", 1400, 900);
+  c_rate_bwd->Divide(3,2);
+  TCanvas* c_rate_fwd = new TCanvas("c_rate_fwd", "Forward hit rate vs r", 1400, 900);
+  c_rate_fwd->Divide(3,2);
+  for (int i = 0; i < nDiscs; i++) {
+    c_rate_bwd->cd(i + 1);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    gPad->SetLogy();  // rate falls steeply with r
+    hHitRate_wrtR_bwd[i]->Draw("EP");
+    hHitRate_wrtR_bwd[i]->SetTitle(
+      bwdLabelsInPlot[i] + ": hit rate vs r;r (mm);Hit rate (cm^{-2} s^{-1})");
+
+    c_rate_fwd->cd(i + 1);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    gPad->SetLogy();  // rate falls steeply with r
+    hHitRate_wrtR_fwd[i]->Draw("EP");
+    hHitRate_wrtR_fwd[i]->SetTitle(
+      fwdLabelsInPlot[i] + ": hit rate vs r;r (mm);Hit rate (cm^{-2} s^{-1})");
+  }
+  c_rate_bwd->SaveAs(occupancyOutDir + "hitRate_wrt_R_bwd.pdf");
+  c_rate_fwd->SaveAs(occupancyOutDir + "hitRate_wrt_R_fwd.pdf");
 }

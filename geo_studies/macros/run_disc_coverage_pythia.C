@@ -2,6 +2,8 @@
 #include "disc_coverage.C"
 
 void run_disc_coverage_pythia(bool onSTBC=false,
+                              float collision_rate=2400.,
+                              unsigned nEvents=1000000,
                               bool runWithMeasurements=false,
                               unsigned nFiles=1,
                               float tolML=3.4,
@@ -11,5 +13,5 @@ void run_disc_coverage_pythia(bool onSTBC=false,
   for (unsigned i = 0; i < nFiles; i++) {
     input_dirs.push_back(Form("pythia_2500ev/seed_%u", i));
   }
-  disc_coverage(input_dirs, onSTBC, runWithMeasurements, tolML, tolOT, debugLevel);
+  disc_coverage(input_dirs, onSTBC, collision_rate, nEvents, runWithMeasurements, tolML, tolOT, debugLevel);
 }
