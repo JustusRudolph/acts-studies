@@ -7,6 +7,9 @@
 #include <TString.h>
 #include <TMath.h>
 #include <iostream>
+#include <fstream>
+#include <cstring>
+#include <cstdint>
 #include <vector>
 #include <array>
 #include <unordered_map>
@@ -66,6 +69,36 @@ bool hit_measurement_match(Pos hit_pos, Pos meas_pos,
   } else {
     return xy_match;
   }
+}
+
+/// Read the ROOT file header directly to decide whether the writer closed the file.
+/// A job that was killed mid-write never gets its free-segment record, so fSeekFree
+/// stays 0. Checking this before TFile::Open means ROOT never runs its (slow) key
+/// recovery, and we never read half-written events: a partial file has an unknown
+/// number of generated events, which would silently break the nEvents normalisation.
+bool root_file_closed_properly(const TString& path) {
+  std::ifstream in(path.Data(), std::ios::binary);
+  if (!in) return false;
+  char magic[4];
+  in.read(magic, 4);
+  if (in.gcount() != 4 || std::strncmp(magic, "root", 4) != 0) return false;
+
+  auto readBE = [&in](std::streamoff off, int nbytes) -> uint64_t {
+    in.seekg(off, std::ios::beg);
+    unsigned char b[8];
+    in.read(reinterpret_cast<char*>(b), nbytes);
+    if (in.gcount() != nbytes) return 0;
+    uint64_t v = 0;
+    for (int i = 0; i < nbytes; i++) v = (v << 8) | b[i];  // ROOT headers are big-endian
+    return v;
+  };
+
+  // header layout: fVersion at 4, fBEGIN at 8, fEND at 12, then fSeekFree.
+  // fEND/fSeekFree take 8 bytes instead of 4 once the file is in large-file format.
+  const bool largeFile = readBE(4, 4) > 1000000;  // fVersion
+  const uint64_t seekFree   = largeFile ? readBE(20, 8) : readBE(16, 4);
+  const uint64_t nbytesFree = largeFile ? readBE(28, 4) : readBE(20, 4);
+  return seekFree > 0 && nbytesFree > 0;
 }
 
 void disc_coverage(
@@ -278,16 +311,40 @@ void disc_coverage(
 
 
   // --- Event loop over all input files ---
+  // only files that pass the "closed properly" gate below are counted here, and the
+  // event normalisation is derived from this rather than from pathBases.size()
+  unsigned nFilesAccepted = 0;
+  std::vector<TString> acceptedPathBases;
   for (const TString& pathBase : pathBases) {
     std::cout << "Processing " << pathBase << "..." << std::endl;
 
     const TString hitsFile         = actso2_output_base + pathBase + "/hits.root";
     const TString measurementsFile = actso2_output_base + pathBase + "/measurements.root";
 
+    // reject before opening: an incomplete file has an unknowable event count, so it
+    // is dropped whole rather than contributing a partial, unnormalisable sample
+    if (!root_file_closed_properly(hitsFile)) {
+      std::cerr << "File not closed properly: " << hitsFile << " — skipping" << std::endl;
+      continue;
+    }
+    if (runWithMeasurements && !root_file_closed_properly(measurementsFile)) {
+      std::cerr << "File not closed properly: " << measurementsFile << " — skipping" << std::endl;
+      continue;
+    }
+
     TFile* fHits = TFile::Open(hitsFile);
     if (!fHits || fHits->IsZombie()) { std::cerr << "Cannot open " << hitsFile << " — skipping" << std::endl; continue; }
+    // backstop: the header check is a heuristic, so drop anything ROOT still had to recover
+    if (fHits->TestBit(TFile::kRecovered)) {
+      std::cerr << "File was recovered by ROOT: " << hitsFile << " — skipping" << std::endl;
+      fHits->Close(); continue;
+    }
     TFile* fMeas = TFile::Open(measurementsFile);
     if (!fMeas || fMeas->IsZombie()) { std::cerr << "Cannot open " << measurementsFile << " — skipping" << std::endl; fHits->Close(); continue; }
+    if (fMeas->TestBit(TFile::kRecovered)) {
+      std::cerr << "File was recovered by ROOT: " << measurementsFile << " — skipping" << std::endl;
+      fHits->Close(); fMeas->Close(); continue;
+    }
 
     TTree* tHits = (TTree*)fHits->Get("hits");
     if (!tHits) { std::cerr << "hits tree not found in " << hitsFile << " — skipping" << std::endl; fHits->Close(); fMeas->Close(); continue; }
@@ -559,6 +616,10 @@ void disc_coverage(
     fHits->Close();
     fMeas->Close();
 
+    // this file contributed a complete set of events
+    nFilesAccepted++;
+    acceptedPathBases.push_back(pathBase);
+
     // clear maps for next file
     hitPosMap.clear();
     measPosMap.clear();
@@ -617,7 +678,8 @@ void disc_coverage(
   }
 
   // loop over hits again for scaled x dependence
-  for (const TString& pathBase : pathBases) {
+  // iterate the accepted files only, so both passes see exactly the same events
+  for (const TString& pathBase : acceptedPathBases) {
     const TString hitsFile         = actso2_output_base + pathBase + "/hits.root";
     TFile* fHits = TFile::Open(hitsFile);
     if (!fHits || fHits->IsZombie()) {
@@ -728,7 +790,21 @@ void disc_coverage(
   // I.e., we are converting the hit counts over N events to a rate using the nominal
   // rate and dividing by the number of events considered
   const double collisionRate_Hz = collision_rate * 1e3;  // kHz -> Hz
-  const double rate_scale_factor = collisionRate_Hz / static_cast<double>(nEvents);
+  // nEvents counts the events across all requested files. Every accepted file holds a
+  // complete set (incomplete ones were dropped before opening), so the events actually
+  // processed scale with the fraction of files that survived the gate.
+  if (nFilesAccepted == 0) {
+    std::cerr << "No input file passed the integrity check — hit rates will be empty"
+              << std::endl;
+  } else if (nFilesAccepted < pathBases.size()) {
+    std::cout << "Skipped " << pathBases.size() - nFilesAccepted << " of "
+              << pathBases.size() << " files as incomplete; normalising to "
+              << nFilesAccepted << " files" << std::endl;
+  }
+  const double nEventsUsed = static_cast<double>(nEvents) *
+    static_cast<double>(nFilesAccepted) / static_cast<double>(pathBases.size());
+  const double rate_scale_factor =
+    (nEventsUsed > 0) ? collisionRate_Hz / nEventsUsed : 0.0;
   for (int i = 0; i < nDiscs; i++) {
     for (int side = 0; side < 2; side++) {  // 0 backward, 1 forward
       TH1D* hCounts = (side == 0) ? hnHits_wrtR_bwd[i] : hnHits_wrtR_fwd[i];
