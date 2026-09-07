@@ -104,7 +104,7 @@ bool root_file_closed_properly(const TString& path) {
 void disc_coverage(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool onSTBC=false,
-  const float collision_rate=2400.,  // in kHz (change for PbPb)
+  const float collision_rate=24000.,  // in kHz (change for PbPb)
   const unsigned nEvents=1000000,
   const bool runWithMeasurements=false,
   const float toleranceML_mm = 3.4,
@@ -340,8 +340,11 @@ void disc_coverage(
       std::cerr << "File was recovered by ROOT: " << hitsFile << " — skipping" << std::endl;
       fHits->Close(); continue;
     }
+    TTree* tHits = (TTree*)fHits->Get("hits");
+    if (!tHits) { std::cerr << "hits tree not found in " << hitsFile << " — skipping" << std::endl; fHits->Close(); continue; }
+
     TFile* fMeas = nullptr;
-    TTree* tMeas;
+    TTree* tMeas = nullptr;
     if (runWithMeasurements) {
       fMeas = TFile::Open(measurementsFile);
       if (!fMeas || fMeas->IsZombie()) { std::cerr << "Cannot open " << measurementsFile << " — skipping" << std::endl; fHits->Close(); continue; }
@@ -349,27 +352,8 @@ void disc_coverage(
         std::cerr << "File was recovered by ROOT: " << measurementsFile << " — skipping" << std::endl;
         fHits->Close(); fMeas->Close(); continue;
       }
-    }
-
-    TTree* tHits = (TTree*)fHits->Get("hits");
-    if (!tHits) { std::cerr << "hits tree not found in " << hitsFile << " — skipping" << std::endl; fHits->Close(); continue; }
-
-    TFile* fMeas = nullptr;
-    TTree* tMeas;
-    if (runWithMeasurements) {
-      fMeas = TFile::Open(measurementsFile);
-      if (!fMeas || fMeas->IsZombie()) {
-        std::cerr << "Cannot open " << measurementsFile << " — skipping"
-                  << std::endl; fMeas->Close(); continue;
-      } else {  // want to use measurements and the file is alive
-        tMeas = (TTree*)fMeas->Get("measurements");
-        if (!tMeas) {
-          std::cerr << "measurements tree not found in " << measurementsFile
-                    << " — skipping" << std::endl;
-          fHits->Close(); fMeas->Close();
-          continue;
-        }
-      }
+      tMeas = (TTree*)fMeas->Get("measurements");
+      if (!tMeas) { std::cerr << "measurements tree not found in " << measurementsFile << " — skipping" << std::endl; fHits->Close(); fMeas->Close(); continue; }
     }
 
     // hit branches

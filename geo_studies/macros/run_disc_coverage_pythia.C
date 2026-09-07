@@ -11,7 +11,7 @@ void run_disc_coverage_pythia(bool onSTBC=false,
                               unsigned debugLevel=0) {
   std::vector<TString> input_dirs;
   for (unsigned i = 0; i < nFiles; i++) {
-    input_dirs.push_back(Form("pythia_2500ev/seed_%u", i));
+    input_dirs.push_back(Form("pythia_2500ev_pp_pileup0/seed_%u", i));
   }
   disc_coverage(input_dirs, onSTBC, collision_rate, nEvents, runWithMeasurements, tolML, tolOT, debugLevel);
 }

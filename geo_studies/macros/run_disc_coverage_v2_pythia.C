@@ -2,7 +2,7 @@
 #include "disc_coverage_v2.C"
 
 void run_disc_coverage_v2_pythia(bool onSTBC=false,
-                                 float collision_rate=2400.,
+                                 float collision_rate=24000.,
                                  unsigned nEvents=1000000,
                                  bool runWithMeasurements=false,
                                  unsigned nFiles=1,
@@ -12,7 +12,7 @@ void run_disc_coverage_v2_pythia(bool onSTBC=false,
                                  Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto) {
   std::vector<TString> input_dirs;
   for (unsigned i = 0; i < nFiles; i++) {
-    input_dirs.push_back(Form("pythia_2500ev/seed_%u", i));
+    input_dirs.push_back(Form("pythia_2500ev_pp_pileup0/seed_%u", i));
   }
   disc_coverage_v2(input_dirs, onSTBC, collision_rate, nEvents, runWithMeasurements,
                    tolML, tolOT, debugLevel, mode);
