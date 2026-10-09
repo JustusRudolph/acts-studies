@@ -126,6 +126,12 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
         fCollisionRate(collision_rate), fNEvents(nEvents),
         fRunWithMeasurements(runWithMeasurements), fDebugLevel(debugLevel),
         fGen3Geometry(gen3Geometry) {
+    // the bin area scales with 1/nEvents to keep the hits per bin the same, so the width
+    // goes with 1/sqrt(nEvents): 250 um at 1M events, but at least 500 um (from 250k
+    // events on) and at most 5 mm (2500 events and fewer)
+    binSize_mm = std::clamp(
+      binSizeRef_mm * std::sqrt(static_cast<float>(nEventsRef) / static_cast<float>(nEvents)),
+      binSizeMin_mm, binSizeMax_mm);
     for (int i = 0; i < nDiscs; i++) {
       rMaxWithTolerance[i] = rMaxNominal[i] + (i < 3 ? std::get<1>(toleranceML_mm) : std::get<1>(toleranceOT_mm));
       rMinWithTolerance[i] = rMinNominal[i] - (i < 3 ? std::get<0>(toleranceML_mm) : std::get<0>(toleranceOT_mm));
@@ -1179,8 +1185,14 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   std::array<float, nDiscs> rMaxNominal = {350.0, 350.0, 350.0, 680.0, 680.0, 680.0};  // mm
   std::array<float, nDiscs> rMaxWithTolerance;
   std::array<float, nDiscs> rMinWithTolerance;
-  // VERY IMPORTANT TO KEEP BIN SIZE TO 1MM FOR COMPARISON WITH STAVE LAYOUTS!
-  float binSize_mm = 1.0;  // mm
+  // bin size optimised for nEventsRef events, scaled with the number of events in the
+  // constructor and kept within [binSizeMin_mm, binSizeMax_mm]
+  static constexpr float binSizeRef_mm = 0.25;
+  static constexpr unsigned nEventsRef = 1000000;
+  // finer bins make the xy hit map PDFs too big (~30 MB at 500 um)
+  static constexpr float binSizeMin_mm = 0.5;
+  static constexpr float binSizeMax_mm = 5.0;
+  float binSize_mm;  // mm
   std::array<unsigned, nDiscs> nXYBins;
 
   // --- run configuration ---
