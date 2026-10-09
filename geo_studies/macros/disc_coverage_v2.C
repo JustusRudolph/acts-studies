@@ -1127,9 +1127,9 @@ void disc_coverage_v2(
   const std::tuple<float, float> toleranceML_mm = {0, 2.5},
   const std::tuple<float, float> toleranceOT_mm = {5, 3},
   const unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
-  Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
-  TString tag="",  // names the histogram file, derived from the sample if empty
-  const bool gen3Geometry=true)  // false for samples made with the old (pre Gen3) geometry
+  const bool gen3Geometry=true,  // false for samples made with the old (pre Gen3) geometry
+  const TString tag="",  // names the histogram file, derived from the sample if empty
+  const Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto)
 {
   const TString base               = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
   const TString actso2_output_base = base + "alice/ACTSO2/output/";
