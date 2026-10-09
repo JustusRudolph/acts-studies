@@ -675,7 +675,8 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
 
     // loop over hits again for scaled x dependence
     // iterate the accepted directories only, so both passes see exactly the same events
-    for (const TString& subDir : acceptedSubDirs) {
+    for (unsigned i_subdir = 0; i_subdir < acceptedSubDirs.size(); i_subdir++) {
+      const TString& subDir = acceptedSubDirs[i_subdir];
       TFile* fHits = openFile(subDir, "hits.root");
       if (!fHits) {
         std::cerr << "Cannot open hits for second loop in " << subDir << " - skipping" << std::endl;
@@ -693,8 +694,9 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
       tHits->SetBranchAddress("ty", &hit_y);
 
       Long64_t nHits = tHits->GetEntries();
-      if (fDebugLevel > 0) std::cout << "DEBUG (1): hits loop again after fitting: nHits="
-                                    << nHits << std::flush << std::endl;
+      if (fDebugLevel > 0) std::cout << "DEBUG (1): hits loop (" << i_subdir
+                                     << ") again after fitting: nHits="
+                                     << nHits << std::flush << std::endl;
       for (Long64_t i = 0; i < nHits; i++) {
         if (i % 10000 == 0  && fDebugLevel > 2)
           std::cout << "DEBUG (3): hits entry " << i << "/"
