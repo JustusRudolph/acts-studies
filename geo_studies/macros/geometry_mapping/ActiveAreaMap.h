@@ -79,8 +79,8 @@ class ActiveAreaMap {
   }
 
   bool isActive(int side, int disc, float x_mm, float y_mm) const {
-    const TH2C* h = fMaps[side][disc];
-    return h && h->GetBinContent(h->FindFixBin(x_mm, y_mm)) > 0;
+    const TH2C* hitmap = fMaps[side][disc];
+    return hitmap && hitmap->GetBinContent(hitmap->FindFixBin(x_mm, y_mm)) > 0;
   }
 
   TH2C* map(int side, int disc) const { return fMaps[side][disc]; }
@@ -106,20 +106,23 @@ class ActiveAreaMap {
    */
   int staveID(int side, int disc, double x_mm, double z_mm, bool* inOverlap = nullptr) const {
     if (inOverlap) *inOverlap = false;
-    const std::vector<Stave>& st = fStaves[side][disc];
-    if (st.empty()) return 0;
-    const int n = st.size();
+    const std::vector<Stave>& staves = fStaves[side][disc];
+    if (staves.empty()) return 0;
+    const int nStaves = staves.size();
     // closest midpoint
-    auto it = std::lower_bound(st.begin(), st.end(), x_mm,
+    auto it = std::lower_bound(staves.begin(), staves.end(), x_mm,
                                [](const Stave& s, double x) { return s.x < x; });
-    if (it == st.end() || (it != st.begin() && x_mm - (it - 1)->x < it->x - x_mm)) --it;
-    int idx = it - st.begin();
+    if (it == staves.end() || (it != staves.begin() &&
+                               ( x_mm - (it - 1)->x ) < ( it->x - x_mm ) ))
+      --it;  // not at the first stave and closer to the previous x_mid
+    int idx = it - staves.begin();
     // staves only overlap with their neighbours
     int best = idx, nContaining = 0;
     double bestDz = std::numeric_limits<double>::max();
-    for (int i = std::max(0, idx - 1); i <= std::min(n - 1, idx + 1); i++) {
-      if (x_mm < st[i].xMin || x_mm > st[i].xMax) continue;
-      const double dz = std::abs(z_mm - st[i].z);
+    // check for overlap in neighbouring stave(s) - edge staves only have one neighbour
+    for (int i = std::max(0, idx - 1); i <= std::min(nStaves - 1, idx + 1); i++) {
+      if (x_mm < staves[i].xMin || x_mm > staves[i].xMax) continue;
+      const double dz = std::abs(z_mm - staves[i].z);
       if (dz < bestDz) {
         best = i;
         bestDz = dz;
@@ -132,6 +135,7 @@ class ActiveAreaMap {
   }
 
   // largest |stave ID| of a disc, e.g. to book a histogram from -N to +N
+  // useful when the staves are not mirrored around x = 0
   int maxStaveID(int side, int disc) const {
     const int nNegative = nStavesNegativeX(side, disc);
     return std::max(nNegative, (int)fStaves[side][disc].size() - nNegative);
@@ -144,16 +148,16 @@ class ActiveAreaMap {
    */
   std::vector<double> activeAreaVsR_mm2(int side, int disc, int nBins, double rMax_mm) const {
     std::vector<double> area(nBins, 0.);
-    const TH2C* h = fMaps[side][disc];
-    if (!h || nBins <= 0 || rMax_mm <= 0) return area;
+    const TH2C* hitmap = fMaps[side][disc];
+    if (!hitmap || nBins <= 0 || rMax_mm <= 0) return area;
     const double rBinWidth = rMax_mm / nBins;
-    const TAxis* ax = h->GetXaxis();
-    const TAxis* ay = h->GetYaxis();
-    for (int bx = 1; bx <= ax->GetNbins(); bx++) {
-      const double x = ax->GetBinCenter(bx), wx = ax->GetBinWidth(bx);
-      for (int by = 1; by <= ay->GetNbins(); by++) {
-        if (h->GetBinContent(bx, by) <= 0) continue;
-        const double y = ay->GetBinCenter(by), wy = ay->GetBinWidth(by);
+    const TAxis* x_axis = hitmap->GetXaxis();
+    const TAxis* y_axis = hitmap->GetYaxis();
+    for (int x_bin = 1; x_bin <= x_axis->GetNbins(); x_bin++) {
+      const double x = x_axis->GetBinCenter(x_bin), wx = x_axis->GetBinWidth(x_bin);
+      for (int y_bin = 1; y_bin <= y_axis->GetNbins(); y_bin++) {
+        if (hitmap->GetBinContent(x_bin, y_bin) <= 0) continue;
+        const double y = y_axis->GetBinCenter(y_bin), wy = y_axis->GetBinWidth(y_bin);
         const int rBin = static_cast<int>(std::sqrt(x * x + y * y) / rBinWidth);
         if (rBin < nBins) area[rBin] += wx * wy;
       }
@@ -187,9 +191,9 @@ class ActiveAreaMap {
 
   void clear() {
     for (auto& side : fMaps)
-      for (TH2C*& h : side) {
-        delete h;
-        h = nullptr;
+      for (TH2C*& hitmap : side) {
+        delete hitmap;
+        hitmap = nullptr;
       }
     for (auto& side : fStaves)
       for (auto& st : side) st.clear();
@@ -203,19 +207,19 @@ class ActiveAreaMap {
     bool ok = true;
     for (int side = 0; side < nSides && ok; side++) {
       for (int disc = 0; disc < nDiscs && ok; disc++) {
-        TH2C* h = dynamic_cast<TH2C*>(file->Get(mapName(side, disc)));
+        TH2C* hitmap = dynamic_cast<TH2C*>(file->Get(mapName(side, disc)));
         TVectorD* st = dynamic_cast<TVectorD*>(file->Get(stavesName(side, disc)));
-        if (!h || !binningMatches(h, disc) || !st || st->GetNrows() % nStaveFields != 0) {
+        if (!hitmap || !binningMatches(hitmap, disc) || !st || st->GetNrows() % nStaveFields != 0) {
           std::cout << "Active area map " << fMapFilePath << " is missing "
                     << mapName(side, disc) << "/" << stavesName(side, disc)
                     << " or binned differently - rebuilding it." << std::endl;
-          delete h;
+          delete hitmap;
           delete st;
           ok = false;
           break;
         }
-        h->SetDirectory(nullptr);
-        fMaps[side][disc] = h;
+        hitmap->SetDirectory(nullptr);
+        fMaps[side][disc] = hitmap;
         for (int i = 0; i < st->GetNrows(); i += nStaveFields)
           fStaves[side][disc].push_back({(*st)[i], (*st)[i + 1], (*st)[i + 2], (*st)[i + 3]});
         delete st;
