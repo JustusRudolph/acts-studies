@@ -8,6 +8,7 @@
 #include <TMath.h>
 #include <TString.h>
 #include <TTree.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
@@ -229,6 +230,13 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
       hHitRate_wrtR_fwd[i] = bindHistogram<TH1D>("hHitRate_wrtR_" + fwdLabels[i],
                                     fwdLabels[i] + " hit rate vs r;r (mm);hit rate (cm^{-2} s^{-1})",
                                     nXYBins[i], 0, xyMax[i]);
+      // one bin per stave ID -N..+N, the bin at 0 stays empty since there is no stave 0
+      hStaveRate_bwd[i] = bindHistogram<TH1D>("hStaveRate_" + bwdLabels[i],
+                                    bwdLabels[i] + " hit rate per stave;Stave ID;hit rate (s^{-1})",
+                                    2 * nStaves[i] + 1, -(int)nStaves[i] - 0.5, nStaves[i] + 0.5);
+      hStaveRate_fwd[i] = bindHistogram<TH1D>("hStaveRate_" + fwdLabels[i],
+                                    fwdLabels[i] + " hit rate per stave;Stave ID;hit rate (s^{-1})",
+                                    2 * nStaves[i] + 1, -(int)nStaves[i] - 0.5, nStaves[i] + 0.5);
 
       effDisc_bwd_wrt_r[i] = bindHistogram<TEfficiency>(
         "effDisc_bwd_" + bwdLabels[i],
@@ -345,6 +353,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
           hHitsXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
           hnHits_wrtX_bwd[layer_in_side]->Fill(hit_x);
           hnHits_wrtR_bwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
+          hStaveRate_bwd[layer_in_side]->Fill(staveID(hit_x, layer_in_side));  // counts for now
           if (hit_part_gen == 0) { // primary particle
             hHitsXY_primary_bwd[layer_in_side]->Fill(hit_x, hit_y);
             hnHits_wrtX_primary_bwd[layer_in_side]->Fill(hit_x);
@@ -354,6 +363,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
           hHitsXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
           hnHits_wrtX_fwd[layer_in_side]->Fill(hit_x);
           hnHits_wrtR_fwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
+          hStaveRate_fwd[layer_in_side]->Fill(staveID(hit_x, layer_in_side));  // counts for now
           if (hit_part_gen == 0) { // primary particle
             hHitsXY_primary_fwd[layer_in_side]->Fill(hit_x, hit_y);
             hnHits_wrtX_primary_fwd[layer_in_side]->Fill(hit_x);
@@ -752,6 +762,10 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
           hRate->SetBinError(bin, hCounts->GetBinError(bin) * scale);
         }
       }
+      // per stave the counts are not divided by any area: this is the total rate the
+      // stave reads out. Scale() takes the (Poisson) errors along.
+      hStaveRate_bwd[i]->Scale(rate_scale_factor);
+      hStaveRate_fwd[i]->Scale(rate_scale_factor);
     }
     if (fDebugLevel > 0) std::cout << "DEBUG (0): all files processed" << std::flush << std::endl;
   }
@@ -1056,6 +1070,31 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     }
     saveCanvas(c_rate_bwd, fOccupancyOutDir + "hitRate_wrt_R_bwd.pdf");
     saveCanvas(c_rate_fwd, fOccupancyOutDir + "hitRate_wrt_R_fwd.pdf");
+
+    // total hit rate per stave, one canvas each for ML and OT: backward discs on
+    // the top row, forward discs on the bottom row
+    TCanvas* c_staveRate_ML = new TCanvas("c_staveRate_ML", "ML hit rate per stave", 1400, 900);
+    c_staveRate_ML->Divide(3,2);
+    TCanvas* c_staveRate_OT = new TCanvas("c_staveRate_OT", "OT hit rate per stave", 1400, 900);
+    c_staveRate_OT->Divide(3,2);
+    for (int i = 0; i < nDiscs; i++) {
+      TCanvas* c = (i < 3) ? c_staveRate_ML : c_staveRate_OT;
+      c->cd(i % 3 + 1);
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      hStaveRate_bwd[i]->SetMinimum(0);
+      hStaveRate_bwd[i]->Draw("EP");
+      hStaveRate_bwd[i]->SetTitle(
+        bwdLabelsInPlot[i] + ": hit rate per stave;Stave ID;Hit rate (s^{-1})");
+
+      c->cd(i % 3 + 4);
+      gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+      hStaveRate_fwd[i]->SetMinimum(0);
+      hStaveRate_fwd[i]->Draw("EP");
+      hStaveRate_fwd[i]->SetTitle(
+        fwdLabelsInPlot[i] + ": hit rate per stave;Stave ID;Hit rate (s^{-1})");
+    }
+    saveCanvas(c_staveRate_ML, fOccupancyOutDir + "hitRate_per_stave_ML.pdf");
+    saveCanvas(c_staveRate_OT, fOccupancyOutDir + "hitRate_per_stave_OT.pdf");
   }
 
  private:
@@ -1083,6 +1122,25 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   // VERY IMPORTANT TO KEEP BIN SIZE TO 1MM FOR COMPARISON WITH STAVE LAYOUTS!
   float binSize_mm = 1.0;  // mm
   std::array<unsigned, nDiscs> nXYBins;
+  // stave layout, from {ML,OT}_StavePositions in O2's FT3ModuleConstants.h
+  // (nStaves, x_midpoint_spacing). NOTE: the ML numbers there are still preliminary.
+  std::array<unsigned, nDiscs> nStaves = {16, 16, 16, 28, 28, 28};
+  std::array<float, nDiscs> stavePitch_mm = {45.0, 45.0, 45.0, 49.2, 49.2, 49.2};
+
+  /*
+   * Stave ID of a hit from its x, as staveIdxToID() in FT3ModuleConstants.h: 1-indexed
+   * from the middle outwards, negative for x < 0, no 0. The staves run along y with
+   * midpoints spread symmetrically about x=0, so the two pieces of a stave split by
+   * the beam pipe share an ID and are summed automatically. Neighbouring staves overlap
+   * a few mm in x; there a hit goes to the closer midpoint, which on average swaps
+   * as many hits into a stave as out of it.
+   */
+  int staveID(float x_mm, int disc) const {
+    const int n = nStaves[disc];
+    int idx = static_cast<int>(std::floor(x_mm / stavePitch_mm[disc] + n / 2.0));
+    idx = std::clamp(idx, 0, n - 1);  // past the edge of the outermost stave
+    return idx - n / 2 + (idx >= n / 2);
+  }
 
   // --- run configuration ---
   float fCollisionRate;  // in kHz
@@ -1107,6 +1165,8 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
                             hnHits_wrtR_primary_bwd, hnHits_wrtR_primary_fwd;
   // hit rate per unit area wrt r, derived from hnHits_wrtR after the event loop
   std::array<TH1D*, nDiscs> hHitRate_wrtR_bwd, hHitRate_wrtR_fwd;
+  // total hit rate per stave (not per area), indexed by stave ID
+  std::array<TH1D*, nDiscs> hStaveRate_bwd, hStaveRate_fwd;
   std::array<TEfficiency*, nDiscs> effDisc_bwd_wrt_r, effDisc_fwd_wrt_r;
   TEfficiency *effDisc_bwd_nominal, *effDisc_fwd_nominal;
   TEfficiency *effDisc_bwd_outside_nominal_ring, *effDisc_fwd_outside_nominal_ring;
