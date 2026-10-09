@@ -138,12 +138,11 @@ class ActiveAreaMap {
   }
 
   /*
-   * Active area (mm^2) in each of nBins uniform r bins over [0, rMax_mm]. The map
-   * bins are 1 mm wide but r bins can be narrower, so every active map bin is split
-   * into kSub x kSub points that each carry their share of its area.
+   * Active area (mm^2) in each of nBins uniform r bins over [0, rMax_mm]. Map bins are
+   * 0/1 flags and the hits inside a bin are not located any finer, so every active bin
+   * puts its full area into the r bin of its centre.
    */
-  std::vector<double> activeAreaVsR_mm2(int side, int disc, int nBins, double rMax_mm,
-                                        int kSub = 4) const {
+  std::vector<double> activeAreaVsR_mm2(int side, int disc, int nBins, double rMax_mm) const {
     std::vector<double> area(nBins, 0.);
     const TH2C* h = fMaps[side][disc];
     if (!h || nBins <= 0 || rMax_mm <= 0) return area;
@@ -151,19 +150,12 @@ class ActiveAreaMap {
     const TAxis* ax = h->GetXaxis();
     const TAxis* ay = h->GetYaxis();
     for (int bx = 1; bx <= ax->GetNbins(); bx++) {
-      const double x0 = ax->GetBinLowEdge(bx), wx = ax->GetBinWidth(bx);
+      const double x = ax->GetBinCenter(bx), wx = ax->GetBinWidth(bx);
       for (int by = 1; by <= ay->GetNbins(); by++) {
         if (h->GetBinContent(bx, by) <= 0) continue;
-        const double y0 = ay->GetBinLowEdge(by), wy = ay->GetBinWidth(by);
-        const double subArea = wx * wy / (kSub * kSub);
-        for (int i = 0; i < kSub; i++) {
-          const double x = x0 + (i + 0.5) * wx / kSub;
-          for (int j = 0; j < kSub; j++) {
-            const double y = y0 + (j + 0.5) * wy / kSub;
-            const int rBin = static_cast<int>(std::sqrt(x * x + y * y) / rBinWidth);
-            if (rBin < nBins) area[rBin] += subArea;
-          }
-        }
+        const double y = ay->GetBinCenter(by), wy = ay->GetBinWidth(by);
+        const int rBin = static_cast<int>(std::sqrt(x * x + y * y) / rBinWidth);
+        if (rBin < nBins) area[rBin] += wx * wy;
       }
     }
     return area;
