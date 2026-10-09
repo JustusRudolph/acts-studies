@@ -84,14 +84,15 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
                float collision_rate=24000.,  // in kHz (change for PbPb)
                unsigned nEvents=1000000,
                bool runWithMeasurements=false,
-               float toleranceML_mm=3.4,
-               float toleranceOT_mm=3.4,  // by how much we can go outside nominal outer radius
+               std::tuple<float, float> toleranceML_mm={0, 2.5}, // inner/outer
+               std::tuple<float, float> toleranceOT_mm={5, 3}, // inner/outer
                unsigned debugLevel=0)  // 0 nothing, 1 some, 2 many, 3 all debug prints
       : Utils::MultiFileAnalysis(histFilePath, inputBase, subDirs),
         fCollisionRate(collision_rate), fNEvents(nEvents),
         fRunWithMeasurements(runWithMeasurements), fDebugLevel(debugLevel) {
     for (int i = 0; i < nDiscs; i++) {
-      rMaxWithTolerance[i] = rMaxNominal[i] + (i < 3 ? toleranceML_mm : toleranceOT_mm);
+      rMaxWithTolerance[i] = rMaxNominal[i] + (i < 3 ? std::get<1>(toleranceML_mm) : std::get<1>(toleranceOT_mm));
+      rMinWithTolerance[i] = rMinNominal[i] - (i < 3 ? std::get<0>(toleranceML_mm) : std::get<0>(toleranceOT_mm));
       nXYBins[i] = static_cast<unsigned>(2 * xyMax[i] / binSize_mm);
     }
     if (fDebugLevel >= 1) {
@@ -115,11 +116,11 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     effDisc_fwd_nominal = bindHistogram<TEfficiency>(
       "effDisc_fwd", "Hit efficiency by forward layer;Forward disc layer;Efficiency",
       nDiscs, -0.5, nDiscs - 0.5);
-    effDisc_bwd_outer_ring = bindHistogram<TEfficiency>(
-      "effDisc_bwd_outer_ring", "Hit efficiency by backward layer (outer ring);Backward disc layer;Efficiency",
+    effDisc_bwd_outside_nominal_ring = bindHistogram<TEfficiency>(
+      "effDisc_bwd_outside_nominal_ring", "Hit efficiency by backward layer (outer ring);Backward disc layer;Efficiency",
       nDiscs, -0.5, nDiscs - 0.5);
-    effDisc_fwd_outer_ring = bindHistogram<TEfficiency>(
-      "effDisc_fwd_outer_ring", "Hit efficiency by forward layer (outer ring);Forward disc layer;Efficiency",
+    effDisc_fwd_outside_nominal_ring = bindHistogram<TEfficiency>(
+      "effDisc_fwd_outside_nominal_ring", "Hit efficiency by forward layer (outer ring);Forward disc layer;Efficiency",
       nDiscs, -0.5, nDiscs - 0.5);
 
     for (int i = 0; i < nDiscs; i++) {
@@ -655,16 +656,21 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
           float r_mm = std::sqrt(x_mm * x_mm + y_mm * y_mm);
           effDisc_bwd_wrt_r[i_disc]->Fill(nHits_bwd > 0, r_mm);
           effDisc_fwd_wrt_r[i_disc]->Fill(nHits_fwd > 0, r_mm);
-          if (r_mm < rMinNominal[i_disc]) {
+          if (r_mm < rMinWithTolerance[i_disc]) {
             continue;
+          }
+          else if (r_mm < rMinNominal[i_disc]) {
+            // larger than the minimum with tolerance, but smaller than the nominal minimum
+            effDisc_bwd_outside_nominal_ring->Fill(nHits_bwd > 0, i_disc);
+            effDisc_fwd_outside_nominal_ring->Fill(nHits_fwd > 0, i_disc);
           } else if (r_mm < rMaxNominal[i_disc]) {
             // larger than inner, smaller than outer: fill nominal eff histos
             effDisc_bwd_nominal->Fill(nHits_bwd > 0, i_disc);
             effDisc_fwd_nominal->Fill(nHits_fwd > 0, i_disc);
           } else if (r_mm < rMaxWithTolerance[i_disc]) {
             // larger than outer, smaller than extended/with tolerance: fill extended eff histos
-            effDisc_bwd_outer_ring->Fill(nHits_bwd > 0, i_disc);
-            effDisc_fwd_outer_ring->Fill(nHits_fwd > 0, i_disc);
+            effDisc_bwd_outside_nominal_ring->Fill(nHits_bwd > 0, i_disc);
+            effDisc_fwd_outside_nominal_ring->Fill(nHits_fwd > 0, i_disc);
           }  // region checking
         }  // loop over y bins
       }  // loop over x bins
@@ -986,12 +992,12 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     legend_hiteff->SetFillStyle(0);
     legend_hiteff->Draw();
     c_eff->cd(2);
-    effDisc_bwd_outer_ring->Draw("EP");
-    effDisc_bwd_outer_ring->SetLineColor(kBlue);
-    effDisc_bwd_outer_ring->SetTitle("Hit efficiency by layer for tolerance region;\
+    effDisc_bwd_outside_nominal_ring->Draw("EP");
+    effDisc_bwd_outside_nominal_ring->SetLineColor(kBlue);
+    effDisc_bwd_outside_nominal_ring->SetTitle("Hit efficiency by layer for tolerance region;\
                                       Layer;Efficiency");
-    effDisc_fwd_outer_ring->Draw("EP SAME");
-    effDisc_fwd_outer_ring->SetLineColor(kRed);
+    effDisc_fwd_outside_nominal_ring->Draw("EP SAME");
+    effDisc_fwd_outside_nominal_ring->SetLineColor(kRed);
     legend_hiteff->Draw();
     saveCanvas(c_eff, fEfficiencyOutDir + "hit_efficiency_by_layer.pdf");
 
@@ -1040,6 +1046,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   std::array<float, nDiscs> rMinNominal = {100.0, 100.0, 100.0, 200.0, 200.0, 200.0};  // mm
   std::array<float, nDiscs> rMaxNominal = {350.0, 350.0, 350.0, 680.0, 680.0, 680.0};  // mm
   std::array<float, nDiscs> rMaxWithTolerance;
+  std::array<float, nDiscs> rMinWithTolerance;
   // VERY IMPORTANT TO KEEP BIN SIZE TO 1MM FOR COMPARISON WITH STAVE LAYOUTS!
   float binSize_mm = 1.0;  // mm
   std::array<unsigned, nDiscs> nXYBins;
@@ -1068,7 +1075,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   std::array<TH1D*, nDiscs> hHitRate_wrtR_bwd, hHitRate_wrtR_fwd;
   std::array<TEfficiency*, nDiscs> effDisc_bwd_wrt_r, effDisc_fwd_wrt_r;
   TEfficiency *effDisc_bwd_nominal, *effDisc_fwd_nominal;
-  TEfficiency *effDisc_bwd_outer_ring, *effDisc_fwd_outer_ring;
+  TEfficiency *effDisc_bwd_outside_nominal_ring, *effDisc_fwd_outside_nominal_ring;
 };
 
 /*
@@ -1083,8 +1090,8 @@ void disc_coverage_v2(
   const float collision_rate=24000.,  // in kHz (change for PbPb)
   const unsigned nEvents=1000000,
   const bool runWithMeasurements=false,
-  const float toleranceML_mm = 3.4,
-  const float toleranceOT_mm = 3.4,  // by how much we can go outside nominal outer radius
+  const std::tuple<float, float> toleranceML_mm = {0, 2.5},
+  const std::tuple<float, float> toleranceOT_mm = {5, 3},
   const unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
   Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
   TString tag="")  // names the histogram file, derived from the sample if empty

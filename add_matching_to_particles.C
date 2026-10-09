@@ -8,11 +8,11 @@
 #include <TString.h>
 
 void add_matching_to_particles(
-  const TString pathToFilesFromOutput = "geo_staves_pi_1GeV_eta14-20",
+  const TString pathToFilesFromOutput = "pythia_0pu_2500ev",
   const bool onSTBC = false,
   const bool useIterativeTracking=true,  // changes name of perf files
   const bool checkPrimaryOnly=true,
-  const bool useDigitisedParticles=false)
+  const bool useDigitisedParticles=true)
 {
 
   TString base = "/home/justus/projects/alice/ACTSO2/output/";
