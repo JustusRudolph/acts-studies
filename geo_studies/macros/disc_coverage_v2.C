@@ -24,8 +24,39 @@ using IDs = std::pair<unsigned, unsigned>;  // bwd/fwd, disc idx
 using HitPosMap = std::unordered_map< /* event -> particle idx -> ID -> list of (x,y) in layer */
   unsigned, std::unordered_map<unsigned, std::unordered_map<unsigned, Positions> > >;
 
+// position of layer_id in the (z ordered) layers of its volume, max unsigned if not in there
+unsigned layer_rank(unsigned layer_id, const std::array<unsigned, 3>& layers) {
+  for (unsigned i = 0; i < layers.size(); i++)
+    if (layers[i] == layer_id) return i;
+  return std::numeric_limits<unsigned>::max();
+}
+
 unsigned volume_and_layer_id_to_disc_idx(
-  unsigned volume_id, unsigned layer_id) {
+  unsigned volume_id, unsigned layer_id, bool gen3Geometry = true) {
+  if (gen3Geometry) {
+    // Gen3 (blueprint) geometry: volume ids from "volumeIds" in gen3_geometry_config.json,
+    // layer ids from the digi config. NOTE: volume 20 is the ML backward volume in the
+    // old geometry but the OT backward one here, so the two can not share one mapping.
+    // Same convention as below: layers are numbered along +z, so the first layer of a
+    // backward volume has the largest |z| and the first of a forward one the smallest.
+    unsigned rank = std::numeric_limits<unsigned>::max();
+    if (volume_id == 20) {  // fwdNeg: OT backward
+      rank = layer_rank(layer_id, {7, 9, 11});
+      if (rank < 3) return 5 - rank;
+    } else if (volume_id == 30) {  // ft3InnerNeg: ML backward
+      rank = layer_rank(layer_id, {3, 7, 11});
+      if (rank < 3) return 2 - rank;
+    } else if (volume_id == 60) {  // ft3InnerPos: ML forward
+      rank = layer_rank(layer_id, {3, 7, 11});
+      if (rank < 3) return 6 + rank;
+    } else if (volume_id == 70) {  // fwdPos: OT forward
+      rank = layer_rank(layer_id, {4, 6, 8});
+      if (rank < 3) return 9 + rank;
+    }
+    // barrel, TOF or unknown layer -- ignore
+    return std::numeric_limits<unsigned>::max();
+  }
+  // old geometry
   if (volume_id == 8) { // OT backward
     if (layer_id <= 4) return 5;  // most "left"most: largest |z|
     else if (layer_id <= 8) return 4;
@@ -86,10 +117,12 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
                bool runWithMeasurements=false,
                std::tuple<float, float> toleranceML_mm={0, 2.5}, // inner/outer
                std::tuple<float, float> toleranceOT_mm={5, 3}, // inner/outer
-               unsigned debugLevel=0)  // 0 nothing, 1 some, 2 many, 3 all debug prints
+               unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
+               bool gen3Geometry=true)  // volume/layer ids of the Gen3 geometry, false for the old one
       : Utils::MultiFileAnalysis(histFilePath, inputBase, subDirs),
         fCollisionRate(collision_rate), fNEvents(nEvents),
-        fRunWithMeasurements(runWithMeasurements), fDebugLevel(debugLevel) {
+        fRunWithMeasurements(runWithMeasurements), fDebugLevel(debugLevel),
+        fGen3Geometry(gen3Geometry) {
     for (int i = 0; i < nDiscs; i++) {
       rMaxWithTolerance[i] = rMaxNominal[i] + (i < 3 ? std::get<1>(toleranceML_mm) : std::get<1>(toleranceOT_mm));
       rMinWithTolerance[i] = rMinNominal[i] - (i < 3 ? std::get<0>(toleranceML_mm) : std::get<0>(toleranceOT_mm));
@@ -282,7 +315,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
           std::cout << "DEBUG (2): hits entry " << i << "/"
                     << nHits << std::flush << std::endl;
         tHits->GetEntry(i);
-        unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id);
+        unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id, fGen3Geometry);
         if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc hit, ignore
 
         IDs discIDs = disc_idx_to_ID(disc_idx);
@@ -348,7 +381,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
             std::cout << "DEBUG (2): meas entry " << i << "/"
                       << nMeas << std::flush << std::endl;
           tMeas->GetEntry(i);
-          unsigned disc_idx = volume_and_layer_id_to_disc_idx(meas_volume_id, meas_layer_id);
+          unsigned disc_idx = volume_and_layer_id_to_disc_idx(meas_volume_id, meas_layer_id, fGen3Geometry);
           if (meas_particle_idx->size() == 0) continue; // no associated particle, ignore (shouldn't happen, just safety check)
           unsigned part_idx = meas_particle_idx->front();
 
@@ -600,7 +633,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
           std::cout << "DEBUG (2): hits entry " << i << "/"
                     << nHits << std::flush << std::endl;
         tHits->GetEntry(i);
-        unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id);
+        unsigned disc_idx = volume_and_layer_id_to_disc_idx(hit_volume_id, hit_layer_id, fGen3Geometry);
         if (disc_idx == std::numeric_limits<unsigned>::max()) continue; // not a disc hit, ignore
         IDs discIDs = disc_idx_to_ID(disc_idx);
         auto [disc_side, layer_in_side] = discIDs;
@@ -1056,6 +1089,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   unsigned fNEvents;
   bool fRunWithMeasurements;
   unsigned fDebugLevel;  // 0 nothing, 1 some, 2 many, 3 all debug prints
+  bool fGen3Geometry;  // which volume/layer id -> disc mapping to use
   TString fOccupancyOutDir, fEfficiencyOutDir;
 
   // --- histograms ---
@@ -1094,7 +1128,8 @@ void disc_coverage_v2(
   const std::tuple<float, float> toleranceOT_mm = {5, 3},
   const unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
   Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
-  TString tag="")  // names the histogram file, derived from the sample if empty
+  TString tag="",  // names the histogram file, derived from the sample if empty
+  const bool gen3Geometry=true)  // false for samples made with the old (pre Gen3) geometry
 {
   const TString base               = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
   const TString actso2_output_base = base + "alice/ACTSO2/output/";
@@ -1112,7 +1147,7 @@ void disc_coverage_v2(
   DiscCoverage analysis(geo_studies_base + "histos/geo/disc_coverage_" + tag + ".root",
                         actso2_output_base, pathBases,
                         collision_rate, nEvents, runWithMeasurements,
-                        toleranceML_mm, toleranceOT_mm, debugLevel);
+                        toleranceML_mm, toleranceOT_mm, debugLevel, gen3Geometry);
   analysis.setOutputDirs(geo_studies_base + "figures/geo/occupancy_layer/",
                          geo_studies_base + "figures/geo/efficiency_layer/");
   analysis.run(mode);
