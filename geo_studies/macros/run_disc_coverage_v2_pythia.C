@@ -13,11 +13,12 @@ void run_disc_coverage_v2_pythia(TString pathToFilesFromOutput = "pythia_0pu_250
                                  unsigned debugLevel=0,
                                  bool gen3Geometry=true,
                                  TString tag="",  // names the histogram file
-                                 Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto) {
+                                 Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
+                                 TString geometryName="geometry_2026_10_02_segmented_realistic") {
   std::vector<TString> input_dirs;
   for (unsigned i = lo_idx; i <= hi_idx; i++) {
     input_dirs.push_back(Form("%s/seed_%u", pathToFilesFromOutput.Data(), i));
   }
   disc_coverage_v2(input_dirs, onSTBC, collision_rate, nEvents, runWithMeasurements,
-                   tolML, tolOT, debugLevel, gen3Geometry, tag, mode);
+                   tolML, tolOT, debugLevel, gen3Geometry, tag, mode, geometryName);
 }

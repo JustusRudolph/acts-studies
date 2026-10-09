@@ -13,9 +13,11 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
+#include "geometry_mapping/ActiveAreaMap.h"
 #include "utils/MultiFileAnalysis.h"
 
 // helper functions
@@ -142,6 +144,21 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     fEfficiencyOutDir = efficiencyDir;
   }
 
+  /*
+   * Read the map of active (x, y) bins and stave positions from mapFilePath, or build
+   * it from geometryFilePath (and write it) if it isn't there or rebuild is set. Needed
+   * before run() whenever the data is filled: the stave histograms are booked from it.
+   */
+  bool loadActiveAreaMap(TString mapFilePath, TString geometryFilePath, bool rebuild) {
+    fActiveMap = std::make_unique<GeometryMapping::ActiveAreaMap>(mapFilePath, geometryFilePath);
+    fActiveMap->setBinning(nXYBins, xyMax);
+    if (!fActiveMap->loadOrBuild(rebuild)) {
+      fActiveMap.reset();
+      return false;
+    }
+    return true;
+  }
+
   // ------------------------------------------------------------------ booking
   void book() override {
     effDisc_bwd_nominal = bindHistogram<TEfficiency>(
@@ -230,13 +247,16 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
       hHitRate_wrtR_fwd[i] = bindHistogram<TH1D>("hHitRate_wrtR_" + fwdLabels[i],
                                     fwdLabels[i] + " hit rate vs r;r (mm);hit rate (cm^{-2} s^{-1})",
                                     nXYBins[i], 0, xyMax[i]);
-      // one bin per stave ID -N..+N, the bin at 0 stays empty since there is no stave 0
+      // one bin per stave ID -N..+N, the bin at 0 stays empty since there is no stave 0.
+      // N comes from the geometry (only needed when filling, read back otherwise)
+      const int nStaves_bwd = fActiveMap ? fActiveMap->maxStaveID(0, i) : 0;
+      const int nStaves_fwd = fActiveMap ? fActiveMap->maxStaveID(1, i) : 0;
       hStaveRate_bwd[i] = bindHistogram<TH1D>("hStaveRate_" + bwdLabels[i],
                                     bwdLabels[i] + " hit rate per stave;Stave ID;hit rate (s^{-1})",
-                                    2 * nStaves[i] + 1, -(int)nStaves[i] - 0.5, nStaves[i] + 0.5);
+                                    2 * nStaves_bwd + 1, -nStaves_bwd - 0.5, nStaves_bwd + 0.5);
       hStaveRate_fwd[i] = bindHistogram<TH1D>("hStaveRate_" + fwdLabels[i],
                                     fwdLabels[i] + " hit rate per stave;Stave ID;hit rate (s^{-1})",
-                                    2 * nStaves[i] + 1, -(int)nStaves[i] - 0.5, nStaves[i] + 0.5);
+                                    2 * nStaves_fwd + 1, -nStaves_fwd - 0.5, nStaves_fwd + 0.5);
 
       effDisc_bwd_wrt_r[i] = bindHistogram<TEfficiency>(
         "effDisc_bwd_" + bwdLabels[i],
@@ -265,6 +285,19 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     // maps to fill and clear after each file
     HitPosMap hitPosMap;
     HitPosMap measPosMap;
+
+    // the active area map normalises the hit rate and gives the stave IDs
+    if (!fActiveMap) {
+      std::cerr << "Error: No active area map loaded (see loadActiveAreaMap()), not filling."
+                << std::endl;
+      return;
+    }
+    // hits outside the active area map: should be ~0 up to bin edge effects, a large
+    // fraction means the disc mapping and the geometry do not belong together
+    std::array<std::array<unsigned, nDiscs>, 2> nDiscHits{}, nDiscHitsInactive{};
+    // hits where two staves overlap in x, assigned by their z
+    std::array<std::array<unsigned, nDiscs>, 2> nDiscHitsInOverlap{};
+    bool inOverlap = false;
 
     // --- Event loop over all input directories ---
     // only files that pass the "closed properly" gate below are counted here, and the
@@ -353,7 +386,12 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
           hHitsXY_bwd[layer_in_side]->Fill(hit_x, hit_y);
           hnHits_wrtX_bwd[layer_in_side]->Fill(hit_x);
           hnHits_wrtR_bwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
-          hStaveRate_bwd[layer_in_side]->Fill(staveID(hit_x, layer_in_side));  // counts for now
+          hStaveRate_bwd[layer_in_side]->Fill(  // counts for now
+            fActiveMap->staveID(0, layer_in_side, hit_x, hit_z, &inOverlap));
+          nDiscHits[0][layer_in_side]++;
+          nDiscHitsInOverlap[0][layer_in_side] += inOverlap;
+          if (fActiveMap && !fActiveMap->isActive(0, layer_in_side, hit_x, hit_y))
+            nDiscHitsInactive[0][layer_in_side]++;
           if (hit_part_gen == 0) { // primary particle
             hHitsXY_primary_bwd[layer_in_side]->Fill(hit_x, hit_y);
             hnHits_wrtX_primary_bwd[layer_in_side]->Fill(hit_x);
@@ -363,7 +401,12 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
           hHitsXY_fwd[layer_in_side]->Fill(hit_x, hit_y);
           hnHits_wrtX_fwd[layer_in_side]->Fill(hit_x);
           hnHits_wrtR_fwd[layer_in_side]->Fill(std::sqrt(hit_x*hit_x + hit_y*hit_y));
-          hStaveRate_fwd[layer_in_side]->Fill(staveID(hit_x, layer_in_side));  // counts for now
+          hStaveRate_fwd[layer_in_side]->Fill(  // counts for now
+            fActiveMap->staveID(1, layer_in_side, hit_x, hit_z, &inOverlap));
+          nDiscHits[1][layer_in_side]++;
+          nDiscHitsInOverlap[1][layer_in_side] += inOverlap;
+          if (fActiveMap && !fActiveMap->isActive(1, layer_in_side, hit_x, hit_y))
+            nDiscHitsInactive[1][layer_in_side]++;
           if (hit_part_gen == 0) { // primary particle
             hHitsXY_primary_fwd[layer_in_side]->Fill(hit_x, hit_y);
             hnHits_wrtX_primary_fwd[layer_in_side]->Fill(hit_x);
@@ -560,6 +603,17 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
       if (fDebugLevel > 0) std::cout << "DEBUG (0): maps cleared, moving to next file"
                                     << std::flush << std::endl;
     }
+    if (fActiveMap) {
+      std::cout << "Fraction of hits outside the active area map / in stave overlaps "
+                << "(assigned by z):" << std::endl;
+      for (int side = 0; side < 2; side++)
+        for (int i = 0; i < nDiscs; i++)
+          printf("  %s: %6.2f%% / %6.2f%% of %u\n", (side == 0 ? bwdLabels[i] : fwdLabels[i]).Data(),
+                 nDiscHits[side][i] ? 100. * nDiscHitsInactive[side][i] / nDiscHits[side][i] : 0.,
+                 nDiscHits[side][i] ? 100. * nDiscHitsInOverlap[side][i] / nDiscHits[side][i] : 0.,
+                 nDiscHits[side][i]);
+    }
+
     // now time to scale with r and stave length
     // an excellent proxy for stave length is the number of non-zero bins in the y
     // projection at a given x bin. This is the same nominally for all ML and OT respectively
@@ -721,7 +775,9 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
 
     // --- Hit rate per unit area wrt r ---
     // The bin content of hnHits_wrtR is a count, i.e. the integral of dN/dr over the
-    // bin, so dividing by the ring area 2*pi*r_c*dr turns it into a surface density.
+    // bin, so dividing by the active area within the ring (from the active area map,
+    // not the full 2*pi*r_c*dr) turns it into the density on the silicon read out.
+    // r bins without any active area are not normalised and stay empty.
     // Counts are then turned into a rate using the collision rate and the events considered.
     // I.e., we are converting the hit counts over N events to a rate using the nominal
     // rate and dividing by the number of events considered.
@@ -744,23 +800,27 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     const double rate_scale_factor =
       (nEventsUsed > 0) ? collisionRate_Hz / nEventsUsed : 0.0;
     for (int i = 0; i < nDiscs; i++) {
-      for (int side = 0; side < 2; side++) {  // 0 backward, 1 forward
+      for (int side = 0; side < 2 && fActiveMap; side++) {  // 0 backward, 1 forward
         TH1D* hCounts = (side == 0) ? hnHits_wrtR_bwd[i] : hnHits_wrtR_fwd[i];
         TH1D* hRate   = (side == 0) ? hHitRate_wrtR_bwd[i] : hHitRate_wrtR_fwd[i];
+        const std::vector<double> activeArea_mm2 = fActiveMap->activeAreaVsR_mm2(
+          side, i, hCounts->GetNbinsX(), hCounts->GetXaxis()->GetXmax());
+        double nHitsNotNormalised = 0;
         for (int bin = 1; bin <= hCounts->GetNbinsX(); bin++) {
-          const double r_cm  = hCounts->GetBinCenter(bin) / 10.0;  // mm -> cm
-          const double dr_cm = hCounts->GetBinWidth(bin) / 10.0;   // mm -> cm
-          const double ringArea_cm2 = 2 * TMath::Pi() * r_cm * dr_cm;
-          if (ringArea_cm2 <= 0) {
-            std::cerr << "ERROR: ring area is non-positive (r_cm = "
-                      << r_cm << ", dr_cm = " << dr_cm << ")" << std::endl;
-            return;
+          const double activeArea_cm2 = activeArea_mm2[bin - 1] / 100.0;  // mm^2 -> cm^2
+          if (activeArea_cm2 <= 0) {
+            nHitsNotNormalised += hCounts->GetBinContent(bin);
+            continue;
           }
-          const double scale = rate_scale_factor / ringArea_cm2;
+          const double scale = rate_scale_factor / activeArea_cm2;
           hRate->SetBinContent(bin, hCounts->GetBinContent(bin) * scale);
           // constant divisor per bin, so the relative (Poisson) error is unchanged
           hRate->SetBinError(bin, hCounts->GetBinError(bin) * scale);
         }
+        if (nHitsNotNormalised > 0)
+          std::cout << (side == 0 ? bwdLabels[i] : fwdLabels[i]) << ": "
+                    << nHitsNotNormalised << " hits in r bins without active area, "
+                    << "left out of the hit rate" << std::endl;
       }
       // per stave the counts are not divided by any area: this is the total rate the
       // stave reads out. Scale() takes the (Poisson) errors along.
@@ -1122,25 +1182,6 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   // VERY IMPORTANT TO KEEP BIN SIZE TO 1MM FOR COMPARISON WITH STAVE LAYOUTS!
   float binSize_mm = 1.0;  // mm
   std::array<unsigned, nDiscs> nXYBins;
-  // stave layout, from {ML,OT}_StavePositions in O2's FT3ModuleConstants.h
-  // (nStaves, x_midpoint_spacing). NOTE: the ML numbers there are still preliminary.
-  std::array<unsigned, nDiscs> nStaves = {16, 16, 16, 28, 28, 28};
-  std::array<float, nDiscs> stavePitch_mm = {45.0, 45.0, 45.0, 49.2, 49.2, 49.2};
-
-  /*
-   * Stave ID of a hit from its x, as staveIdxToID() in FT3ModuleConstants.h: 1-indexed
-   * from the middle outwards, negative for x < 0, no 0. The staves run along y with
-   * midpoints spread symmetrically about x=0, so the two pieces of a stave split by
-   * the beam pipe share an ID and are summed automatically. Neighbouring staves overlap
-   * a few mm in x; there a hit goes to the closer midpoint, which on average swaps
-   * as many hits into a stave as out of it.
-   */
-  int staveID(float x_mm, int disc) const {
-    const int n = nStaves[disc];
-    int idx = static_cast<int>(std::floor(x_mm / stavePitch_mm[disc] + n / 2.0));
-    idx = std::clamp(idx, 0, n - 1);  // past the edge of the outermost stave
-    return idx - n / 2 + (idx >= n / 2);
-  }
 
   // --- run configuration ---
   float fCollisionRate;  // in kHz
@@ -1149,6 +1190,8 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   unsigned fDebugLevel;  // 0 nothing, 1 some, 2 many, 3 all debug prints
   bool fGen3Geometry;  // which volume/layer id -> disc mapping to use
   TString fOccupancyOutDir, fEfficiencyOutDir;
+  // active area and stave positions of the simulated geometry
+  std::unique_ptr<GeometryMapping::ActiveAreaMap> fActiveMap;
 
   // --- histograms ---
   // xy hit positions that become measurements
@@ -1189,7 +1232,10 @@ void disc_coverage_v2(
   const unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
   const bool gen3Geometry=true,  // false for samples made with the old (pre Gen3) geometry
   TString tag="",  // names the histogram file, derived from the sample if empty (so not const)
-  const Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto)
+  const Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
+  // directory in ACTSO2/geometries the sample was simulated with: the active area and
+  // the stave layout are taken from its geom/o2sim_geometry.root
+  const TString geometryName="geometry_2026_10_02_segmented_realistic")
 {
   const TString base               = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
   const TString actso2_output_base = base + "alice/ACTSO2/output/";
@@ -1210,5 +1256,20 @@ void disc_coverage_v2(
                         toleranceML_mm, toleranceOT_mm, debugLevel, gen3Geometry);
   analysis.setOutputDirs(geo_studies_base + "figures/geo/occupancy_layer/",
                          geo_studies_base + "figures/geo/efficiency_layer/");
+  // The geometry is only needed if the data is filled: always for kRefill/kFillOnly,
+  // and for kAuto if there is no histogram file yet. The map is read back if it exists,
+  // unless the data is run over again anyway.
+  const bool rerun = mode == Utils::AnalysisBase::kRefill || mode == Utils::AnalysisBase::kFillOnly;
+  const bool willFill = rerun ||
+    (mode == Utils::AnalysisBase::kAuto && gSystem->AccessPathName(analysis.histFilePath()));
+  if (willFill &&
+      !analysis.loadActiveAreaMap(
+        geo_studies_base + "histos/geo/active_area_map_" + tag + ".root",
+        base + "alice/ACTSO2/geometries/" + geometryName + "/geom/o2sim_geometry.root",
+        rerun)) {
+    std::cerr << "Error: Could not get the active area map for " << geometryName
+              << " - stopping." << std::endl;
+    return;
+  }
   analysis.run(mode);
 }
