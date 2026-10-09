@@ -1,0 +1,581 @@
+% =====================================================================
+%  Finding looping tracks in ACTS: a segment-and-merge architecture
+%  Design note.  Line references are against ACTS 664c82a5 (19 Aug 2026).
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!45!black,urlcolor=blue!45!black,
+            citecolor=blue!45!black]{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+
+% Works whether pdflatex is run from navigator_studies/ (via the Makefile)
+% or from tex/ directly.
+\graphicspath{{figures/}{../figures/}}
+
+\captionsetup{font=small,labelfont=bf,width=0.92\textwidth}
+\setlist[itemize]{itemsep=2pt,topsep=3pt}
+\setlist[enumerate]{itemsep=2pt,topsep=3pt}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\setlength{\emergencystretch}{2.5em}
+\newcommand{\srcref}[2]{\code{#1:#2}}
+
+\title{\bfseries Finding looping tracks in ACTS\\
+       \large A segment-and-merge architecture}
+\author{Design note}
+\date{19 August 2026 \quad---\quad ACTS \code{664c82a5}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Low-$p_T$ tracks in a solenoidal field curve back towards the beamline instead
+of leaving the detector. The stock ACTS \code{Navigator} cannot follow them
+through the radial turning point, because the navigation layer extrapolates
+along the tangent and is curvature-blind by interface. This note argues against
+building a navigator that flies through the turn, and in favour of
+\emph{cutting} the trajectory at the turning point and merging the resulting
+segments afterwards. The central observation is that consecutive radial
+turning points are separated by exactly half a revolution of the track circle,
+so every segment is monotonic in $r$ and sub-half-helix in length --- precisely
+the regime in which the existing navigator is already correct. The note
+identifies the concrete extension points (\code{branchStopper} rather than a new
+\code{navigator\_t}), proposes matching on helix invariants rather than on
+bound parameters, and recommends an implementation order.
+\end{abstract}
+
+\tableofcontents
+
+% =====================================================================
+\section{The problem}
+% =====================================================================
+
+A charged particle in a uniform solenoidal field describes a helix. In the
+transverse plane this projects to a circle of radius
+\begin{equation}
+  R \;=\; \frac{p_T}{0.3\,B}
+  \qquad (\text{$R$ in\,m}, \; p_T \text{ in\,GeV}, \; B \text{ in\,T}),
+\end{equation}
+centred at some point $\vec{c}$. The track therefore never exceeds
+\begin{equation}
+  r_{\max} \;=\; |\vec{c}| + R ,
+  \label{eq:rmax}
+\end{equation}
+which for a particle originating at the beamline ($|\vec{c}| = R$) is $2R$. If
+$r_{\max}$ falls inside the tracking volume, the particle turns around and comes
+back in. It is a \emph{looper}.
+
+These tracks are not exotic. In a compact, high-field tracker a substantial
+fraction of the soft charged multiplicity loops. They are, however, largely
+invisible to combinatorial track finding as currently configured, and the reason
+is architectural rather than physical.
+
+\subsection{Why the stock navigator cannot follow the turn}
+
+The \code{CombinatorialKalmanFilter} (CKF) is a propagator \emph{actor}. It
+never talks to the \code{Navigator} directly. The two communicate only through
+the stepping loop in \srcref{Propagator.ipp}{99--193}, and the entire contract
+between them is the single field \code{state.navigation.currentSurface}
+(Figure~\ref{fig:loop}).
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig-01-propagator-loop.pdf}
+  \caption{The three-way handshake. The Navigator and the CKF never call each
+    other; \code{Propagator.ipp} mediates. A null \code{currentSurface} is
+    indistinguishable, to the CKF, from ``nothing here yet''.}
+  \label{fig:loop}
+\end{figure}
+
+Three properties of this arrangement conspire against loopers.
+
+\paragraph{The navigation layer is curvature-blind by interface.}
+\code{Navigator::nextTarget(state, position, direction)} receives a
+\emph{direction}, not a momentum. Gen3's \code{NavigationArguments} carries
+\code{position}, \code{direction} and \code{tolerance} --- no $q/p$, no charge,
+no field. Correspondingly, \code{Surface::intersect} is straight-line only:
+there is no helix--surface intersection anywhere in ACTS Core. The navigator
+therefore proposes targets by extending the tangent, and the error of that
+estimate grows as (bend per step) $\times$ (step length), as sketched in
+Figure~\ref{fig:chord}.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.62\textwidth]{fig-02-tangent-vs-chord.pdf}
+  \caption{Tangent, chord and true arc at increasing curvature per step. Panel
+    (c) is the degenerate case: at the turning point the tangent is purely
+    azimuthal and the radial gradient vanishes.}
+  \label{fig:chord}
+\end{figure}
+
+\paragraph{At the turning point the extrapolation leaves the reachable region.}
+Write $\hat{n} = (x,y)/r$ for the outward unit \emph{transverse} radial vector.
+Where $\hat{d}\cdot\hat{n} = 0$, the tangent ray is purely azimuthal. Every
+surface it meets at larger radius lies outside $r_{\max}$ and is
+\emph{physically unreachable} by this track, while the surfaces the track will
+actually cross --- the ones it already passed, at smaller radius --- lie behind
+the ray and are invisible to a forward search. Figure~\ref{fig:turn} shows the
+geometry.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.86\textwidth]{fig-03-turning-point.pdf}
+  \caption{The failure in the transverse plane. At $T$ the tangent scores
+    candidates along a ray that leaves the reachable region
+    $r \le r_{\max} = |\vec{c}| + R$; the layers the track will really
+    re-cross are behind it.}
+  \label{fig:turn}
+\end{figure}
+
+\paragraph{Gen3 never re-resolves inside a volume.}
+Navigation candidates are resolved once per volume and consumed by a
+monotonically increasing index (\srcref{Navigator.cpp}{574--586}). A refresh is
+triggered only when \code{INavigationPolicy::isValid} returns \code{false}, and
+the base implementation returns \code{true} unconditionally
+(\srcref{INavigationPolicy.hpp}{265--271}) --- no concrete policy in Core
+overrides it. So even if the track's direction reverses completely, the ordered
+candidate list from volume entry is never rebuilt (Figure~\ref{fig:policy}).
+
+\medskip\noindent
+On top of this, loop protection caps the path length at
+$\text{loopFraction} \times 2\pi p / B$, i.e.\ half a helix turn by default
+(\srcref{PropagatorOptions.hpp}{46--48}), and \code{maxSteps = 1000}
+(\srcref{PropagatorOptions.hpp}{34}) is a budget for the \emph{entire} CKF branch
+tree, so a single runaway branch discards every track found so far.
+
+% =====================================================================
+\section{The pivot: cut, don't fly through}
+% =====================================================================
+
+The natural response to Section~1 is to build a curvature-aware
+\code{navigator\_t}: a look-behind sweep along the chord, a curvature-bounded
+layer window, a \code{checkTargetValid} that invalidates once the direction has
+rotated. All of that is feasible --- see Appendix~\ref{app:navigator} --- but it
+is a large amount of delicate new code in the most safety-critical part of the
+propagation.
+
+The alternative is to \textbf{stop at the turning point, and merge the pieces
+afterwards}. This is strictly better, and the reason is geometric.
+
+\subsection{Segments are half-revolutions}
+
+Parametrise the transverse circle by the angle $\psi$ measured from the
+direction of $\vec{c}$, so that a point on the track is
+$\vec{x}(\psi) = \vec{c} + R\,(\cos\psi, \sin\psi)$ rotated into that frame.
+Then
+\begin{equation}
+  r^2(\psi) \;=\; |\vec{c}|^2 + R^2 + 2\,|\vec{c}|\,R\cos\psi ,
+  \label{eq:rpsi}
+\end{equation}
+and therefore
+\begin{equation}
+  \frac{\mathrm{d}(r^2)}{\mathrm{d}\psi} \;=\; -2\,|\vec{c}|\,R\,\sin\psi
+  \;=\; 0
+  \qquad\Longleftrightarrow\qquad
+  \psi \in \{0,\ \pi\} .
+\end{equation}
+The stationary points of the radius are $\psi = 0$, giving
+$r_{\max} = |\vec{c}| + R$, and $\psi = \pi$, giving
+$r_{\min} = \bigl||\vec{c}| - R\bigr|$. \textbf{Consecutive radial turning
+points are separated by $\Delta\psi = \pi$: exactly half a revolution of the
+track circle.}
+
+Two consequences follow immediately.
+
+\begin{enumerate}
+\item \textbf{Every segment is monotonic in $r$.} Between turning points,
+  $\mathrm{d}r/\mathrm{d}s$ does not change sign. The trajectory is exactly the
+  kind of outward- (or inward-) going arc that the stock navigator handles
+  correctly. None of the three failure modes of Section~1.1 is reachable inside
+  a segment.
+\item \textbf{Every segment fits inside the default loop-protection budget.}
+  A half revolution has 3D path length $s = \pi R / \sin\theta = \pi p / (0.3 B)$,
+  which is precisely $\text{loopFraction} \times 2\pi p / B$ at the default
+  $\text{loopFraction} = 0.5$. The half-turn cap stops being an antagonist and
+  becomes a backstop that should rarely fire before the explicit turning-point
+  stop does.
+\end{enumerate}
+
+\noindent
+This is the whole argument for the architecture: \emph{by cutting at the turning
+point, one never enters the regime that breaks the navigator.} The detection
+criterion is also directly the geometry. With $\hat{n} = (x,y)/r$ the outward
+unit transverse radial vector,
+\begin{equation}
+  \hat{d}\cdot\hat{n}
+  \;=\; \frac{x\,d_x + y\,d_y}{r}
+  \;=\; \frac{\mathrm{d}r}{\mathrm{d}s} ,
+  \label{eq:radcos}
+\end{equation}
+the rate of change of the transverse radius per unit \emph{3D} path length.
+Normalising the transverse direction instead, $\hat{d}_T = (d_x,d_y)/\sin\theta$,
+gives the true cosine $\hat{d}_T\cdot\hat{n} = \mathrm{d}r/\mathrm{d}s_T \in
+[-1,1]$. The two differ only by the positive factor $\sin\theta$, so they share
+their sign and their zeros, and either may be used for detection.
+
+From Eq.~\eqref{eq:rpsi}, $\mathrm{d}r/\mathrm{d}\psi \propto -\sin\psi$, so
+Eq.~\eqref{eq:radcos} vanishes exactly at $\psi \in \{0, \pi\}$ --- at the
+turning points and nowhere else.
+
+% =====================================================================
+\section{Components}
+% =====================================================================
+
+The proposed scheme has four parts. They are presented here in dependency
+order, which is not the order in which they were first enumerated.
+
+\subsection{Turning-point detection --- \code{branchStopper}}
+\label{sec:stopper}
+
+This is neither a navigator concern nor an aborter. The correct hook is the
+\code{branchStopper} delegate declared in
+\srcref{CombinatorialKalmanFilterExtensions.hpp}{60--61}. It returns
+\begin{center}
+\code{Continue} \quad\textbar\quad \code{StopAndDrop} \quad\textbar\quad
+\code{StopAndKeep}
+\end{center}
+(\srcref{CombinatorialKalmanFilterExtensions.hpp}{38--42}). It is invoked on both
+paths through the actor: the measurement path at
+\srcref{CombinatorialKalmanFilter.hpp}{870} and the hole/material path at
+\srcref{CombinatorialKalmanFilter.hpp}{733}. Returning \code{StopAndKeep} stores
+the branch, pops it from \code{activeBranches}, and lets the depth-first tree
+walk continue normally (Figure~\ref{fig:tree}). No propagation surgery is
+required, and no new \code{navigator\_t} is needed.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\textwidth]{fig-05-ckf-branch-tree.pdf}
+  \caption{The CKF branch walk. \code{StopAndKeep} stores and pops; it does
+    \emph{not} restart from the turning point, which is why the scheme is
+    necessarily multi-pass.}
+  \label{fig:tree}
+\end{figure}
+
+Four implementation notes.
+
+\paragraph{Use the transverse radial cosine.} Compute $\hat{d}\cdot\hat{n}$ of
+Eq.~\eqref{eq:radcos} --- the projection onto the \emph{transverse} radial
+$\hat{n} = (x,y)/r$ --- and \textbf{not} the projection onto the spherical
+radial $\hat{r} = \vec{x}/|\vec{x}|$. The latter,
+\begin{equation*}
+  \hat{d}\cdot\hat{r} \;=\; \frac{x\,d_x + y\,d_y + z\,d_z}{|\vec{x}|} ,
+\end{equation*}
+carries the extra term $z\,d_z$, which for a forward-going track is strictly
+positive. It can therefore stay positive straight through the transverse
+turning point, and the flip is never seen.
+
+Only the \emph{sign} is needed, and $r > 0$, so the division may be dropped
+entirely:
+\begin{center}
+\code{const double radialProj = pos.x() * dir.x() + pos.y() * dir.y();}
+\end{center}
+Store it per branch (below) and stop when it changes sign.
+
+\paragraph{Guard the small-$r$ case.} $\hat{n}$ is ill-defined as $r \to 0$, so
+the sign of \code{radialProj} becomes noise-dominated for a track passing close
+to the beamline --- which is exactly the $r_{\min}$ turning point of a primary
+looper, where $r_{\min} = \bigl||\vec c| - R\bigr| \approx 0$. Require $r$ above
+a few mm before trusting a flip, or handle inner turning points separately.
+
+\paragraph{Carry the previous value in a dynamic column.} Sign-flip detection
+needs one step of history, and that history must be \emph{per branch}: two
+branches off the same surface can turn at different points. The pattern is
+already in the tree --- \srcref{TrackFindingAlgorithm.cpp}{176--255} attaches a
+\code{BranchState} struct via \code{ProxyAccessor} on a named column. This
+survives branch splits: \code{copyFromShallow} calls
+\code{copyFromWithoutStates}, which calls \code{copyDynamicFrom} at
+\srcref{TrackProxy.hpp}{551}.
+
+\paragraph{Do not let the existing stopper eat short segments.}
+\srcref{TrackFindingAlgorithm.cpp}{247} returns \code{StopAndDrop} whenever
+\code{!enoughMeasurements}. A track already curving back as it enters the barrel
+yields a two- or three-hit segment which is legitimately below
+\code{minMeasurements} but is still a real piece of a real track.
+\textbf{Segment-level retention must be looser than track-level retention}, with
+the tight quality cut moved to the merged object. This is plumbing, but it is
+the kind that silently deletes exactly the signal one is chasing.
+
+\subsection{Continuation: directed extrapolation vs.\ independent seeding}
+\label{sec:continuation}
+
+Because \code{StopAndKeep} stores and pops rather than restarting, segment~2 is
+a \emph{separate} \code{findTracks} invocation. There are two ways to obtain its
+starting state, and the choice reshapes the rest of the design.
+
+\paragraph{(a) Independent seeding, then matching.} Seed every segment on its
+own, find them all, then pair them up. This is the more general scheme, and it
+is the only way to recover a segment whose predecessor was never found. It is
+also expensive: an inbound segment does not point at the beamline, so
+\emph{triplet seeding rejects it on impact parameter long before $p_T$ matters}.
+The blocker is \code{impactMax}, not \code{minPt}, and loosening \code{impactMax}
+enough to accept inbound segments is a combinatorial disaster.
+
+\paragraph{(b) Directed continuation.} At the turning point the fitted
+parameters and their full covariance are already known, and so is the helix.
+Extrapolate analytically across the turn --- a single closed-form step, no
+search, no navigator --- and hand the result to the next CKF pass as its
+starting state. The continuation is \emph{constructed} rather than discovered.
+
+\medskip\noindent
+Directed continuation should be the primary mechanism. It removes the need for
+inbound-capable seeding entirely for all segments after the first, and it makes
+matching free for the pairs it produces, because the pairing is known by
+construction. Independent seeding plus matching is then a \emph{fallback} for
+orphan segments, not the main path.
+
+The cost of (b) is error inheritance: a mismeasured first segment gives a
+displaced continuation seed, and at low $p_T$ the extrapolation uncertainty
+across the turn is large. That is tolerable --- one opens the search window wide
+at the first layer of segment~2, which is exactly what the CKF is good at.
+
+\subsection{Segment matching}
+\label{sec:matching}
+
+For the orphan case one still needs a matching criterion. The obvious
+formulation --- Euclidean distance in bound-parameter space --- does not work:
+\code{loc0} and \code{loc1} are in mm, \code{phi} and \code{theta} in radians,
+\code{qOverP} in $\mathrm{GeV}^{-1}$. There is no defensible relative weighting,
+and the covariances differ by orders of magnitude between a soft and a stiff
+segment. Two better metrics, used at different stages:
+
+\paragraph{Pre-selection on helix invariants.} Both segments lie on the
+\emph{same circle}. Compute per segment
+\begin{equation}
+  \bigl(c_x,\ c_y,\ R,\ \tan\lambda,\ q\bigr)
+\end{equation}
+and match on those. They are physically commensurate, directly comparable, and
+--- crucially --- require no propagation to a common surface, so pre-selection
+can be done by binning in $O(N \log N)$ rather than by $O(N^2)$ propagations.
+The shared circle also supplies a common parametrisation $\psi$ for free, so the
+longitudinal match reduces to comparing $z$ extrapolated to a common $\psi$.
+
+There is a bonus. Energy loss makes $R \propto p_T$ shrink monotonically along
+the track, so $R_2 < R_1$ is not noise to be tolerated --- \textbf{the sign of
+the radius mismatch identifies which segment came first}. That halves the
+pairing combinatorics and provides an independent consistency check.
+
+\paragraph{Confirmation by combined refit.} Once a pair survives pre-selection,
+do not try to make the distance test precise. Refit the union of the hits with
+the Kalman filter and let the combined $\chi^2/\mathrm{ndf}$ arbitrate. Matching
+then only has to be good enough to \emph{propose}, which is a far weaker
+requirement than being good enough to \emph{decide}. If a distance test is
+wanted in addition, use the Mahalanobis form
+\begin{equation}
+  \chi^2 \;=\; \Delta p^{\mathsf T}\,\bigl(C_1 + C_2\bigr)^{-1}\,\Delta p ,
+\end{equation}
+which is $\chi^2$-distributed on 5 degrees of freedom and therefore gives a
+principled threshold, rather than an arbitrary distance cut.
+
+\paragraph{Trap.} Segment~2 travels inward. If it was seeded independently, its
+direction and charge conventions may be reversed relative to segment~1 --- a
+sign-flipped $q/p$ and a $\phi$ offset by $\pi$ on genuine matches. Normalise
+conventions before comparing anything.
+
+\medskip\noindent
+There is no segment-merging machinery in Core to build on. The classes under
+\code{Acts/\allowbreak AmbiguityResolution/} solve duplicate \emph{removal}, not
+concatenation. The merger is therefore new code --- but it lives entirely
+downstream of the propagation, operating on a finished
+\code{TrackContainer}, which makes it easy to develop and test standalone.
+
+\subsection{Widening acceptance}
+\label{sec:widening}
+
+This should come \emph{last}, once the preceding parts make the effect
+measurable.
+
+For the measurement selector: \code{MeasurementSelectorCuts}
+(\srcref{MeasurementSelector.hpp}{34--42}) bins on \code{etaBins} only. There is
+no $p_T$ binning, so ``widen for loopers'' currently means ``widen for
+everyone'', which costs branches and burns the shared \code{maxSteps} budget.
+
+Before widening anything, \textbf{check the $\chi^2$ pulls} on a sample of known
+low-$p_T$ tracks:
+\begin{itemize}
+\item If the pulls are wider than unit width, the predicted covariance is wrong
+  --- the material model or the field integration is underestimating multiple
+  scattering. Widening the cut then papers over a bug that will resurface in the
+  fit.
+\item If the pulls are unit-width and hits are still being lost, widen --- but as
+  an explicit $p_T$- or $R$-dependent selector, not globally.
+\end{itemize}
+
+For seeding, see Section~\ref{sec:continuation}: under directed continuation the
+seeding requirement for segments after the first disappears, which is the
+largest single simplification available here.
+
+\subsection{Disc-region navigation}
+\label{sec:discs}
+
+A dedicated \code{LoopNavigator} for the endcap region was proposed. It is worth
+being precise about which problem it would solve, because in one reading it is
+unnecessary:
+
+\begin{itemize}
+\item \emph{A track turns in the barrel and its continuation lies in the endcap
+  discs.} This is just a normal monotonic segment that happens to start in a
+  different volume. The stock navigator handles it. No new navigator is needed
+  --- and this is the design working as intended.
+\item \emph{A track spirals within the disc region}, crossing the same disc
+  twice at small $r$. This is a genuine multi-intersection problem. But it has
+  the same turning-point structure in a different coordinate, so the same
+  segment-and-merge treatment applies with the cut placed on the sign flip of
+  $\mathrm{d}z/\mathrm{d}s$ instead of $\mathrm{d}r/\mathrm{d}s$.
+\end{itemize}
+
+\noindent
+Either way, the entire value of this architecture is that it keeps the
+propagation inside the regime the existing navigator is correct in. Introducing
+a custom navigator reintroduces the risk that was just designed away. It should
+be held in reserve.
+
+% =====================================================================
+\section{Recommended order}
+% =====================================================================
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+\item \textbf{Turning-point \code{branchStopper}} (Section~\ref{sec:stopper}).
+  Roughly sixty lines. It requires no changes to the propagator, the navigator
+  or the geometry, and it immediately yields a measurable population of turning
+  points to characterise. Do this first, and instrument it.
+\item \textbf{Directed continuation} (Section~\ref{sec:continuation}). Analytic
+  extrapolation across the turn, feeding a second CKF pass. This is what makes
+  the scheme work without touching seeding.
+\item \textbf{Segment matching for orphans} (Section~\ref{sec:matching}). Helix
+  invariants for pre-selection, combined refit for confirmation.
+\item \textbf{Acceptance widening} (Section~\ref{sec:widening}), with pull
+  distributions in hand rather than by guesswork.
+\item \textbf{A custom navigator} (Section~\ref{sec:discs}, Appendix~%
+  \ref{app:navigator}) --- only for whatever residual remains after measuring
+  steps 1--4. If that residual is small, the hardest part of the project has
+  been avoided entirely.
+\end{enumerate}
+
+% =====================================================================
+\appendix
+\section{If a custom navigator does turn out to be needed}
+\label{app:navigator}
+% =====================================================================
+
+The design conclusions reached before the pivot, retained in case step~5 is
+reached:
+
+\begin{itemize}
+\item \textbf{Separate ``no target this step'' from ``navigation has failed''.}
+  This --- not its brute-force candidate set --- is the actual source of
+  \code{TryAllNavigator}'s robustness. It returns \code{None} \emph{without}
+  setting \code{navigationBreak} at \srcref{TryAllNavigator.hpp}{413}, letting the
+  propagator step blindly forward and recover.
+\item \textbf{Steal the chord-based look-behind sweep}
+  (\srcref{TryAllNavigator.hpp}{340--346}, Figure~\ref{fig:lookbehind}). Search
+  backwards along the chord with $\text{nearLimit} = -|AB| + \varepsilon$ and
+  $\text{farLimit} = 0$. Roughly 35 lines. Drop the flat whole-volume candidate
+  set that surrounds it in \code{TryAllNavigator}; it is Gen1-only and
+  expensive.
+\item \textbf{Measure curvature from two consecutive chords} rather than from
+  $q/p$. This needs no interface change --- sidestepping the curvature-blindness
+  of \code{NavigationArguments} --- and it is immune to the seed-stage $p_T$
+  uncertainty that makes an analytic $r_{\max}$ cut (Eq.~\ref{eq:rmax})
+  unusable in the first few layers.
+\item \textbf{Replace ``current layer only'' with a curvature-bounded layer
+  window}, and make the validity checks curvature-aware rather than constant:
+  both \code{checkTargetValid} and the policy's \code{isValid}. Note that
+  \code{isValid} governs \emph{cadence}, not
+  \emph{scope}, so a policy override works regardless of how many volumes the
+  loop crosses.
+\item \textbf{Shrink the step size as the radial gradient approaches zero}, so
+  the turn is not overshot and a block of layers skipped.
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{fig-04-chord-lookbehind.pdf}
+  \caption{The retrospective sweep. The chord is the secant of the arc actually
+    flown, known only \emph{after} the step --- aim with the tangent, then verify
+    along the chord.}
+  \label{fig:lookbehind}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig-06-policy-lifecycle.pdf}
+  \caption{\code{INavigationPolicy} call sites across a volume traversal, and
+    why \code{isValid} defaulting to \code{true} means Gen3 never re-resolves
+    inside a volume.}
+  \label{fig:policy}
+\end{figure}
+
+\clearpage
+% =====================================================================
+\section{Code reference table}
+% =====================================================================
+
+All line numbers against ACTS \code{664c82a5} (19 August 2026).
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}llp{6.9cm}@{}}
+\toprule
+\textbf{File} & \textbf{Lines} & \textbf{What} \\
+\midrule
+\multicolumn{3}{@{}l}{\itshape Propagation} \\
+\code{Propagator.ipp}   & 99--193 & the stepping loop \\
+                        & 51      & \code{nextTarget} \\
+                        & 56      & pre-step \code{updateSurfaceStatus} \\
+                        & 102     & \code{step} \\
+                        & 129     & post-step \code{updateSurfaceStatus} \\
+                        & 135     & \code{handleSurfaceReached} \\
+                        & 144     & \code{actorList.act} \\
+                        & 166     & \code{checkTargetValid} \\
+\code{PropagatorOptions.hpp} & 34 & \code{maxSteps = 1000} (whole branch tree) \\
+                        & 40      & \code{maxTargetSkipping = 100} \\
+                        & 46--48  & \code{loopProtection}, \code{loopFraction = 0.5} \\
+\midrule
+\multicolumn{3}{@{}l}{\itshape Navigation} \\
+\code{Navigator.cpp}    & 335, 560 & \code{isValid} call sites \\
+                        & 380     & \code{popState} on volume exit \\
+                        & 574--586 & candidate index; no mid-volume re-resolve \\
+                        & 645     & \code{createState} on volume entry \\
+                        & 672     & \code{initializeNavigationCandidates} \\
+\code{INavigationPolicy.hpp} & 265--271 & \code{isValid} defaults to \code{true} \\
+\code{TryAllNavigator.hpp} & 340--346 & chord look-behind sweep \\
+                        & 413     & \code{None} without \code{navigationBreak} \\
+\midrule
+\multicolumn{3}{@{}l}{\itshape Track finding} \\
+\code{CombinatorialKalmanFilterExtensions.hpp} & 38--42 & \code{BranchStopperResult} enum \\
+                        & 60--61  & \code{BranchStopper} delegate signature \\
+                        & 67      & default (always \code{Continue}) \\
+\code{CombinatorialKalmanFilter.hpp} & 471--538 & \code{Actor::reset} \\
+                        & 733     & \code{branchStopper}, hole/material path \\
+                        & 870     & \code{branchStopper}, measurement path \\
+\code{MeasurementSelector.hpp} & 34--42 & \code{MeasurementSelectorCuts}; \code{etaBins} only \\
+\code{TrackProxy.hpp}   & 551     & \code{copyDynamicFrom} --- columns survive splits \\
+\code{TrackFindingAlgorithm.cpp} & 176--255 & example \code{BranchStopper} \\
+                        & 247     & \code{StopAndDrop} on \code{!enoughMeasurements} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Facts worth restating.}
+\begin{itemize}
+\item \code{Surface::intersect} is straight-line only. There is no
+  helix--surface intersection anywhere in ACTS Core.
+\item \code{NavigationArguments} carries \code{position}, \code{direction} and
+  \code{tolerance} --- no $q/p$, charge or field.
+\item \code{maxSteps} is a budget for the entire branch-tree walk; exhausting
+  it returns \code{Propagation\allowbreak Reaches\allowbreak MaxSteps} and discards every track found
+  so far.
+\item Dynamic track columns are copied on branch split, so per-branch state is
+  safe.
+\end{itemize}
+
+\end{document}
