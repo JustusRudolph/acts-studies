@@ -132,14 +132,21 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     binSize_mm = std::clamp(
       binSizeRef_mm * std::sqrt(static_cast<float>(nEventsRef) / static_cast<float>(nEvents)),
       binSizeMin_mm, binSizeMax_mm);
+    // the active area of an r bin is summed from the xy bins whose centres are in it, which
+    // is uneven unless the r bin is at least twice as wide as the xy bins: 10x, at most 25 mm
+    rBinSize_mm = std::min(rBinSizeFactor * binSize_mm, rBinSizeMax_mm);
     for (int i = 0; i < nDiscs; i++) {
       rMaxWithTolerance[i] = rMaxNominal[i] + (i < 3 ? std::get<1>(toleranceML_mm) : std::get<1>(toleranceOT_mm));
       rMinWithTolerance[i] = rMinNominal[i] - (i < 3 ? std::get<0>(toleranceML_mm) : std::get<0>(toleranceOT_mm));
       nXYBins[i] = static_cast<unsigned>(2 * xyMax[i] / binSize_mm);
+      nRBins[i] = static_cast<unsigned>(xyMax[i] / rBinSize_mm);
     }
     if (fDebugLevel >= 1) {
       std::cout << "Using bin size of " << binSize_mm << " mm, resulting in nXYBins: ";
       for (int i = 0; i < nDiscs; i++) std::cout << nXYBins[i] << " ";
+      std::cout << std::endl;
+      std::cout << "Using r bin size of " << rBinSize_mm << " mm, resulting in nRBins: ";
+      for (int i = 0; i < nDiscs; i++) std::cout << nRBins[i] << " ";
       std::cout << std::endl;
     }
   }
@@ -236,23 +243,23 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
                  nXYBins[i], -xyMax[i], xyMax[i]);
       hnHits_wrtR_bwd[i] = bindHistogram<TH1D>("hnHits_wrtR_" + bwdLabels[i],
                                     bwdLabels[i] + " number of hits vs r;r (mm);n hits",
-                                    nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+                                    nRBins[i], 0, xyMax[i]);
       hnHits_wrtR_primary_bwd[i] = bindHistogram<TH1D>("hnHits_wrtR_primary_" + bwdLabels[i],
                                     bwdLabels[i] + " hits from primary particles vs r;r (mm);n hits",
-                                    nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+                                    nRBins[i], 0, xyMax[i]);
       hnHits_wrtR_fwd[i] = bindHistogram<TH1D>("hnHits_wrtR_" + fwdLabels[i],
                                     fwdLabels[i] + " number of hits vs r;r (mm);n hits",
-                                    nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+                                    nRBins[i], 0, xyMax[i]);
       hnHits_wrtR_primary_fwd[i] = bindHistogram<TH1D>("hnHits_wrtR_primary_" + fwdLabels[i],
                                     fwdLabels[i] + " hits from primary particles vs r;r (mm);n hits",
-                                    nXYBins[i], 0, xyMax[i]);  // not exactly 1mm bins
+                                    nRBins[i], 0, xyMax[i]);
       // same binning as hnHits_wrtR so the rate is a straight per-bin rescaling
       hHitRate_wrtR_bwd[i] = bindHistogram<TH1D>("hHitRate_wrtR_" + bwdLabels[i],
                                     bwdLabels[i] + " hit rate vs r;r (mm);hit rate (cm^{-2} s^{-1})",
-                                    nXYBins[i], 0, xyMax[i]);
+                                    nRBins[i], 0, xyMax[i]);
       hHitRate_wrtR_fwd[i] = bindHistogram<TH1D>("hHitRate_wrtR_" + fwdLabels[i],
                                     fwdLabels[i] + " hit rate vs r;r (mm);hit rate (cm^{-2} s^{-1})",
-                                    nXYBins[i], 0, xyMax[i]);
+                                    nRBins[i], 0, xyMax[i]);
       // one bin per stave ID -N..+N, the bin at 0 stays empty since there is no stave 0.
       // N comes from the geometry (only needed when filling, read back otherwise)
       const int nStaves_bwd = fActiveMap ? fActiveMap->maxStaveID(0, i) : 0;
@@ -834,6 +841,17 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
       // stave reads out. Scale() takes the (Poisson) errors along.
       hStaveRate_bwd[i]->Scale(rate_scale_factor);
       hStaveRate_fwd[i]->Scale(rate_scale_factor);
+      // a stave split by the beam pipe is read out per piece: show the rate per piece
+      for (int side = 0; side < 2 && fActiveMap; side++) {
+        TH1D* hStave = (side == 0) ? hStaveRate_bwd[i] : hStaveRate_fwd[i];
+        const auto& staves = fActiveMap->staves(side, i);
+        for (int idx = 0; idx < (int)staves.size(); idx++) {
+          if (staves[idx].nPieces <= 1) continue;
+          const int bin = hStave->FindBin(fActiveMap->staveIDOfIndex(side, i, idx));
+          hStave->SetBinContent(bin, hStave->GetBinContent(bin) / staves[idx].nPieces);
+          hStave->SetBinError(bin, hStave->GetBinError(bin) / staves[idx].nPieces);
+        }
+      }
     }
     if (fDebugLevel > 0) std::cout << "DEBUG (0): all files processed" << std::flush << std::endl;
   }
@@ -1152,14 +1170,14 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
       hStaveRate_bwd[i]->SetMinimum(0);
       hStaveRate_bwd[i]->Draw("EP");
       hStaveRate_bwd[i]->SetTitle(
-        bwdLabelsInPlot[i] + ": hit rate per stave;Stave ID;Hit rate (s^{-1})");
+        bwdLabelsInPlot[i] + ": hit rate per stave (split: per half);Stave ID;Hit rate (s^{-1})");
 
       c->cd(i % 3 + 4);
       gPad->SetLeftMargin(0.15);  // y label cut off otherwise
       hStaveRate_fwd[i]->SetMinimum(0);
       hStaveRate_fwd[i]->Draw("EP");
       hStaveRate_fwd[i]->SetTitle(
-        fwdLabelsInPlot[i] + ": hit rate per stave;Stave ID;Hit rate (s^{-1})");
+        fwdLabelsInPlot[i] + ": hit rate per stave (split: per half);Stave ID;Hit rate (s^{-1})");
     }
     saveCanvas(c_staveRate_ML, fOccupancyOutDir + "hitRate_per_stave_ML.pdf");
     saveCanvas(c_staveRate_OT, fOccupancyOutDir + "hitRate_per_stave_OT.pdf");
@@ -1196,6 +1214,12 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   static constexpr float binSizeMax_mm = 5.0;
   float binSize_mm;  // mm
   std::array<unsigned, nDiscs> nXYBins;
+  // r bins of the hits and hit rate vs r: rBinSizeFactor times the xy bins, at most
+  // rBinSizeMax_mm (5 mm from 250k events on, 25 mm from 10k events down)
+  static constexpr float rBinSizeFactor = 10.0;
+  static constexpr float rBinSizeMax_mm = 25.0;
+  float rBinSize_mm;  // mm
+  std::array<unsigned, nDiscs> nRBins;
 
   // --- run configuration ---
   float fCollisionRate;  // in kHz

@@ -153,7 +153,7 @@ void compare_disc_coverage(const std::vector<TString> histFiles,
         const int disc = 3 * det + k;
         c->cd(3 * side + k + 1);
         drawHists(getAll<TH1D>(files, "hStaveRate_" + label(side, disc)), labels,
-                  labelInPlot(side, disc) + ": hit rate per stave;Stave ID;Hit rate (s^{-1})",
+                  labelInPlot(side, disc) + ": hit rate per stave (split: per half);Stave ID;Hit rate (s^{-1})",
                   false);
       }
     }

@@ -91,6 +91,7 @@ class ActiveAreaMap {
     double x;           // midpoint
     double xMin, xMax;  // x range covered by its active sensors
     double z;           // mean z of its active sensors, i.e. where its hits are
+    int nPieces;        // 2 if split by the beam pipe, 1 otherwise
   };
   // the staves of a disc, sorted by x
   const std::vector<Stave>& staves(int side, int disc) const { return fStaves[side][disc]; }
@@ -130,8 +131,13 @@ class ActiveAreaMap {
       nContaining++;
     }
     if (inOverlap) *inOverlap = nContaining > 1;
+    return staveIDOfIndex(side, disc, best);
+  }
+
+  // stave ID (as in staveID()) of the stave at position idx in staves()
+  int staveIDOfIndex(int side, int disc, int idx) const {
     const int nNegative = nStavesNegativeX(side, disc);
-    return best < nNegative ? best - nNegative : best - nNegative + 1;
+    return idx < nNegative ? idx - nNegative : idx - nNegative + 1;
   }
 
   // largest |stave ID| of a disc, e.g. to book a histogram from -N to +N
@@ -169,11 +175,11 @@ class ActiveAreaMap {
   static TString mapName(int side, int disc) {
     return Form("activeMap_%s_disc_%d", side == 0 ? "bwd" : "fwd", disc);
   }
-  // stored flat as x, xMin, xMax, z per stave
+  // stored flat as x, xMin, xMax, z, nPieces per stave
   static TString stavesName(int side, int disc) {
     return Form("staves_%s_disc_%d", side == 0 ? "bwd" : "fwd", disc);
   }
-  static constexpr int nStaveFields = 4;
+  static constexpr int nStaveFields = 5;
 
   int nStavesNegativeX(int side, int disc) const {
     const std::vector<Stave>& st = fStaves[side][disc];
@@ -231,7 +237,8 @@ class ActiveAreaMap {
             {(*stavesProperties)[i],
              (*stavesProperties)[i + 1],
              (*stavesProperties)[i + 2],
-             (*stavesProperties)[i + 3]});
+             (*stavesProperties)[i + 3],
+             static_cast<int>((*stavesProperties)[i + 4])});
         delete stavesProperties;
       }
     }
@@ -254,7 +261,8 @@ class ActiveAreaMap {
         fMaps[side][disc]->Write();
         std::vector<double> flat;
         for (const Stave& stave : fStaves[side][disc])
-          flat.insert(flat.end(), {stave.x, stave.xMin, stave.xMax, stave.z});
+          flat.insert(flat.end(),
+                      {stave.x, stave.xMin, stave.xMax, stave.z, (double)stave.nPieces});
         TVectorD(flat.size(), flat.data()).Write(stavesName(side, disc));
       }
     }
@@ -405,18 +413,23 @@ class ActiveAreaMap {
         fMaps[side][disc] = h;
 
         // the pieces of a split stave sit at the same x: keep one midpoint per stave
+        // and count its pieces
         std::vector<double> xs = staveXPerLayer[layer];
         std::sort(xs.begin(), xs.end());
-        xs.erase(std::unique(xs.begin(), xs.end(),
-                             [](double a, double b) { return std::abs(a - b) < 0.1; }),  // mm
-                 xs.end());
+        std::vector<std::pair<double, int>> xAndPieces;
+        for (double x : xs) {
+          if (!xAndPieces.empty() && std::abs(x - xAndPieces.back().first) < 0.1)  // mm
+            xAndPieces.back().second++;
+          else
+            xAndPieces.push_back({x, 1});
+        }
         // every sensor belongs to the stave with the closest midpoint (its centre is well
         // inside the stave, so unlike a hit near the edge this is unambiguous), which
         // gives the active x range and z of each stave
         std::vector<Stave> st;
-        for (double x : xs)
+        for (const auto& [x, nPieces] : xAndPieces)
           st.push_back({x, std::numeric_limits<double>::max(),
-                        std::numeric_limits<double>::lowest(), 0.});
+                        std::numeric_limits<double>::lowest(), 0., nPieces});
         std::vector<unsigned> nSensors(st.size(), 0);
         for (const Footprint& f : sensorsPerLayer[layer]) {
           if (st.empty()) break;
