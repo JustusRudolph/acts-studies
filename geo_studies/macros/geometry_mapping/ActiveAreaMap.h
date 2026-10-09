@@ -204,31 +204,41 @@ class ActiveAreaMap {
     TFile* file = TFile::Open(fMapFilePath);
     if (!file || file->IsZombie()) return false;
     clear();
-    bool ok = true;
-    for (int side = 0; side < nSides && ok; side++) {
-      for (int disc = 0; disc < nDiscs && ok; disc++) {
+    bool input_ok = true;
+    for (int side = 0; side < nSides && input_ok; side++) {
+      for (int disc = 0; disc < nDiscs && input_ok; disc++) {
         TH2C* hitmap = dynamic_cast<TH2C*>(file->Get(mapName(side, disc)));
-        TVectorD* st = dynamic_cast<TVectorD*>(file->Get(stavesName(side, disc)));
-        if (!hitmap || !binningMatches(hitmap, disc) || !st || st->GetNrows() % nStaveFields != 0) {
+        TVectorD* stavesProperties =
+          dynamic_cast<TVectorD*>(file->Get(stavesName(side, disc)));
+        // If hitmap does not exist, the disc is not in the hitmap, staves are not in the disc,
+        // or the number of stave properties (fields) is not a multiple of the number of fields
+        // then we have a problem and need to stop
+        if (!hitmap || !binningMatches(hitmap, disc) || !stavesProperties ||
+            stavesProperties->GetNrows() % nStaveFields != 0) {
           std::cout << "Active area map " << fMapFilePath << " is missing "
                     << mapName(side, disc) << "/" << stavesName(side, disc)
                     << " or binned differently - rebuilding it." << std::endl;
           delete hitmap;
-          delete st;
-          ok = false;
+          delete stavesProperties;
+          input_ok = false;
           break;
         }
         hitmap->SetDirectory(nullptr);
         fMaps[side][disc] = hitmap;
-        for (int i = 0; i < st->GetNrows(); i += nStaveFields)
-          fStaves[side][disc].push_back({(*st)[i], (*st)[i + 1], (*st)[i + 2], (*st)[i + 3]});
-        delete st;
+        // create the staves from stave properties
+        for (int i = 0; i < stavesProperties->GetNrows(); i += nStaveFields)
+          fStaves[side][disc].push_back(
+            {(*stavesProperties)[i],
+             (*stavesProperties)[i + 1],
+             (*stavesProperties)[i + 2],
+             (*stavesProperties)[i + 3]});
+        delete stavesProperties;
       }
     }
     file->Close();
     delete file;
-    if (!ok) clear();
-    return ok;
+    if (!input_ok) clear();
+    return input_ok;
   }
 
   void write() const {
@@ -243,8 +253,8 @@ class ActiveAreaMap {
       for (int disc = 0; disc < nDiscs; disc++) {
         fMaps[side][disc]->Write();
         std::vector<double> flat;
-        for (const Stave& st : fStaves[side][disc])
-          flat.insert(flat.end(), {st.x, st.xMin, st.xMax, st.z});
+        for (const Stave& stave : fStaves[side][disc])
+          flat.insert(flat.end(), {stave.x, stave.xMin, stave.xMax, stave.z});
         TVectorD(flat.size(), flat.data()).Write(stavesName(side, disc));
       }
     }
