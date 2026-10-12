@@ -44,8 +44,17 @@ std::vector<T*> getAll(const std::vector<TFile*>& files, const TString& name) {
   return objs;
 }
 
-TLegend* makeLegend(const std::vector<TObject*>& objs, const std::vector<TString>& labels) {
-  TLegend* leg = new TLegend(0.5, 0.7, 0.88, 0.88);
+// top right, or centred at (0.5, 0.2) with smaller text if bottomCentre
+TLegend* makeLegend(const std::vector<TObject*>& objs, const std::vector<TString>& labels,
+                    bool bottomCentre = false) {
+  TLegend* leg;
+  if (bottomCentre) {
+    const double halfHeight = 0.5 * 0.045 * objs.size();
+    leg = new TLegend(0.3, 0.2 - halfHeight, 0.7, 0.2 + halfHeight);
+    leg->SetTextSize(0.035);
+  } else {
+    leg = new TLegend(0.5, 0.7, 0.88, 0.88);
+  }
   leg->SetBorderSize(0);
   leg->SetFillStyle(0);
   for (unsigned f = 0; f < objs.size(); f++) leg->AddEntry(objs[f], labels[f], "lep");
@@ -54,7 +63,7 @@ TLegend* makeLegend(const std::vector<TObject*>& objs, const std::vector<TString
 
 // draw all histograms on the current pad, with a y range that fits all of them
 void drawHists(std::vector<TH1D*> hists, const std::vector<TString>& labels,
-               const TString& title, bool logy) {
+               const TString& title, bool logy, bool bottomLegend = false) {
   gPad->SetLeftMargin(0.15);  // y label cut off otherwise
   gPad->SetLogy(logy);
   double yMin = 0, yMax = 0;
@@ -73,7 +82,7 @@ void drawHists(std::vector<TH1D*> hists, const std::vector<TString>& labels,
     hists[f]->SetMaximum(logy ? 2 * yMax : 1.1 * yMax);
     hists[f]->Draw(f == 0 ? "EP" : "EP SAME");
   }
-  makeLegend(std::vector<TObject*>(hists.begin(), hists.end()), labels)->Draw();
+  makeLegend(std::vector<TObject*>(hists.begin(), hists.end()), labels, bottomLegend)->Draw();
 }
 
 void drawEffs(std::vector<TEfficiency*> effs, const std::vector<TString>& labels,
@@ -90,7 +99,7 @@ void drawEffs(std::vector<TEfficiency*> effs, const std::vector<TString>& labels
   gPad->Update();  // the painted graph only exists after this
   effs[0]->GetPaintedGraph()->SetMinimum(0);
   effs[0]->GetPaintedGraph()->SetMaximum(1.05);
-  makeLegend(std::vector<TObject*>(effs.begin(), effs.end()), labels)->Draw();
+  makeLegend(std::vector<TObject*>(effs.begin(), effs.end()), labels, true)->Draw();
 }
 
 void save(TCanvas* c, const TString& path) {
@@ -162,7 +171,7 @@ void compare_disc_coverage(const std::vector<TString> histFiles,
         c->cd(3 * side + k + 1);
         drawHists(getAll<TH1D>(files, "hStaveRate_" + label(side, disc)), labels,
                   labelInPlot(side, disc) + ": hit rate per stave (split: per half);Stave ID;Hit rate (s^{-1})",
-                  false);
+                  false, true);
       }
     }
     save(c, occupancyDir + "hitRate_per_stave_" + (det == 0 ? "ML" : "OT") + suffix);
