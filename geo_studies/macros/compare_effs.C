@@ -13,6 +13,8 @@
 #include <TLine.h>
 #include <TString.h>
 
+#include "../../Utils/BasicFunctions.h"
+
 // ---- configure histograms to compare here ----
 const std::vector<TString> kFindingHistNames = {
   "trackeff_vs_eta",
@@ -280,9 +282,8 @@ void compare_effs(
 ) {
   gStyle->SetOptStat(0);
 
-  const TString base = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
-  const TString actso2_output_base = base + "alice/ACTSO2/output/";
-  const TString geo_studies_base = base + "alice/acts-studies/geo_studies/";
+  const TString actso2_output_base = Utils::outputPathBase(onSTBC);
+  const TString geo_studies_base = Utils::aliceProjectsBase(onSTBC) + "acts-studies/geo_studies/";
 
   TFile* fFind1 = TFile::Open(actso2_output_base + path1 + "/performance_finding_ambi.root");
   TFile* fFind2 = TFile::Open(actso2_output_base + path2 + "/performance_finding_ambi.root");

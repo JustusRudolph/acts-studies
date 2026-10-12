@@ -7,6 +7,8 @@
 #include <TTree.h>
 #include <TString.h>
 
+#include "Utils/BasicFunctions.h"
+
 void add_matching_to_particles(
   const TString pathToFilesFromOutput = "pythia_0pu_2500ev",
   const bool onSTBC = false,
@@ -15,10 +17,7 @@ void add_matching_to_particles(
   const bool useDigitisedParticles=true)
 {
 
-  TString base = "/home/justus/projects/alice/ACTSO2/output/";
-  if (onSTBC) {
-    base = "/data/alice/jrudolph/alice/ACTSO2/output/";
-  }
+  const TString base = Utils::outputPathBase(onSTBC);
   const TString simFile  = base + pathToFilesFromOutput
                          + (useDigitisedParticles ?
                               "/particles_digitized_selected.root" :

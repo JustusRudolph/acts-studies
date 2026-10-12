@@ -19,7 +19,7 @@
 
 #include "geometry_mapping/ActiveAreaMap.h"
 #include "utils/MultiFileAnalysis.h"
-#include "utils/BasicFunctions.h"
+#include "../../Utils/BasicFunctions.h"
 
 // helper functions
 using Pos = std::array<float, 3>;  // x, y, z

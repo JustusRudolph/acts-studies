@@ -11,7 +11,7 @@
 namespace Utils {
   // function for getting the path base of output material
   inline TString outputPathBase(bool onSTBC) {
-    return onSTBC ? "/dchache/alice/jrudolph/alice/ACTSO2/output/"
+    return onSTBC ? "/dcache/alice/jrudolph/alice/ACTSO2/output/"
                   : "/home/justus/projects/alice/ACTSO2/output/";
   }
   inline TString aliceProjectsBase(bool onSTBC) {

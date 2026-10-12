@@ -14,6 +14,8 @@
 #include <array>
 #include <unordered_map>
 
+#include "../../Utils/BasicFunctions.h"
+
 // helper functions
 using Pos = std::array<float, 3>;  // x, y, z
 using Positions = std::vector<Pos>;
@@ -111,9 +113,8 @@ void disc_coverage(
   const float toleranceOT_mm = 3.4,  // by how much we can go outside nominal outer radius
   const unsigned debugLevel=0)  // 0 nothing, 1 some, 2 many, 3 all debug prints
 {
-  const TString base             = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
-  const TString actso2_output_base = base + "alice/ACTSO2/output/";
-  const TString geo_studies_base = base + "alice/acts-studies/geo_studies/";
+  const TString actso2_output_base = Utils::outputPathBase(onSTBC);
+  const TString geo_studies_base = Utils::aliceProjectsBase(onSTBC) + "acts-studies/geo_studies/";
 
   // 12 disc layers: 6 backward (negative z), 6 forward (positive z)
   // Within each side, layers are ordered by increasing |z|

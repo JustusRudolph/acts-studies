@@ -9,6 +9,8 @@
 
 #include "../utils/cuts.C"  // includes Constants.C
 
+#include "../../Utils/BasicFunctions.h"
+
 void phi_dep_eff(const std::vector<TString>& phi_eff_input_dirs,
                  TEfficiency* eff_wrt_phi_near_central,
                  TEfficiency* eff_wrt_phi_complete_central,
@@ -19,9 +21,9 @@ void phi_dep_eff(const std::vector<TString>& phi_eff_input_dirs,
   auto complete_central_eta_acceptance_phi_eff = [](float eta) {
     return (std::abs(eta) < 1e-4);
   };
-  TString alice_base_dir = Constants::getAliceBaseDir(onSTBC);
+  const TString actso2_output_base = Utils::outputPathBase(onSTBC);
   for (const TString& input_dir : phi_eff_input_dirs) {
-    TString dir_name = Form("%s/ACTSO2/output/%s", alice_base_dir.Data(), input_dir.Data());
+    TString dir_name = actso2_output_base + input_dir;
     TString phi_eff_path = Form("%s/particles_matched.root", dir_name.Data());
 
     TFile* phi_eff_file = TFile::Open(phi_eff_path);
@@ -70,7 +72,7 @@ void alice3_reproduce(const bool onSTBC=false,
   // Set ROOT style
   gStyle->SetOptStat(0);
   // need base of where ACTSO2 output is stored to access the input files
-  const TString alice_base_dir = Constants::getAliceBaseDir(onSTBC);
+  const TString actso2_output_base = Utils::outputPathBase(onSTBC);
   // Define particle types and pTs
   std::vector<TString> particles = {"electron", "piplus", "proton", "kaonplus"};
   std::vector<TString> particle_labels = {"e^{-}", "#pi^{+}", "p^{+}", "K^{+}"};
@@ -118,7 +120,7 @@ void alice3_reproduce(const bool onSTBC=false,
 
   for (const TString& input_dir : input_dirs) {
     std::cout << "Processing " << input_dir << "..." << std::endl;
-    TString dir_name = Form("%s/ACTSO2/output/%s", alice_base_dir.Data(), input_dir.Data());
+    TString dir_name = actso2_output_base + input_dir;
     TString sim_matched_filename = dir_name + "/particles_matched.root";
     TFile* sim_matched_file = TFile::Open(sim_matched_filename);
     if (!sim_matched_file || sim_matched_file->IsZombie()) {
@@ -188,8 +190,8 @@ void alice3_reproduce(const bool onSTBC=false,
   }
 
   // Now plot efficiency vs pT for all particles
-  TString output_dir = Form("%s/acts-studies/pythia_studies/figures/alice3_reproduced_plots",
-                            alice_base_dir.Data());
+  TString output_dir = Utils::aliceProjectsBase(onSTBC)
+                     + "acts-studies/pythia_studies/figures/alice3_reproduced_plots";
   TCanvas* canvas1 = new TCanvas("c1", "Efficiency vs pT", 800, 600);
   // LEGEND
   // put legend in bottom right corner: same for ambi and seeding plots

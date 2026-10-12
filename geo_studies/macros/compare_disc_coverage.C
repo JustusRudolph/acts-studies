@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <vector>
 
+#include "../../Utils/BasicFunctions.h"
+
 /*
  * Overlays the hit rate vs r, the hit rate per stave and the hit efficiencies of
  * several histogram files made by disc_coverage_v2 (run that first for every sample).
@@ -111,8 +113,7 @@ void compare_disc_coverage(const std::vector<TString> histFiles,
   gROOT->SetBatch(true);
   gStyle->SetOptStat(0);
 
-  const TString base = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
-  const TString geo_studies_base = base + "alice/acts-studies/geo_studies/";
+  const TString geo_studies_base = Utils::aliceProjectsBase(onSTBC) + "acts-studies/geo_studies/";
   const TString occupancyDir = geo_studies_base + "figures/geo/compare/occupancy_layer/";
   const TString efficiencyDir = geo_studies_base + "figures/geo/compare/efficiency_layer/";
   const TString suffix = outTag.IsNull() ? TString(".pdf") : "_" + outTag + ".pdf";

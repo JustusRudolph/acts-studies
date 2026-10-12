@@ -11,6 +11,8 @@
 #include <iostream>
 #include <vector>
 
+#include "../../Utils/BasicFunctions.h"
+
 void geo_efficiency_plots(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool onSTBC=false,
@@ -19,9 +21,8 @@ void geo_efficiency_plots(
   const float etaMax=2.5
 )
 {
-  const TString base = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
-  const TString actso2_output_base    = base + "alice/ACTSO2/output/";
-  const TString geo_studies_base = base + "alice/acts-studies/geo_studies/";
+  const TString actso2_output_base = Utils::outputPathBase(onSTBC);
+  const TString geo_studies_base = Utils::aliceProjectsBase(onSTBC) + "acts-studies/geo_studies/";
   const TString rootOutFile = geo_studies_base + "histos/efficiencies/geo_efficiency_plots.root";
   const TString pdfOutFile = geo_studies_base + "figures/efficiencies/";
 
