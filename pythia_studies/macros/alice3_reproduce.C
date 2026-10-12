@@ -142,7 +142,7 @@ void alice3_reproduce(const bool onSTBC=false,
     sim_tree->SetBranchAddress("generation",     &generation);
     sim_tree->SetBranchAddress("number_of_hits", &nHits);
     sim_tree->SetBranchAddress("matched",        &matched);
-    sim_tree->SetBranchAddress("matched",        &matched_Seed);
+    sim_tree->SetBranchAddress("seed_matched",        &matched_Seed);
 
 
     for (unsigned i_ev = 0; i_ev < sim_tree->GetEntries(); i_ev++) {
