@@ -186,8 +186,10 @@ void alice3_reproduce(const bool onSTBC=false,
   }
 
   // Now plot efficiency vs pT for all particles
-  TString output_dir = Utils::aliceProjectsBase(onSTBC)
-                     + "acts-studies/pythia_studies/figures/alice3_reproduced_plots";
+  // figures/<sample>/alice3_reproduced_plots, the sample being the input path without seed_N
+  TString output_dir = Utils::aliceProjectsBase(onSTBC) + "acts-studies/pythia_studies/figures/"
+                     + Utils::figureDirName("", input_dirs) + "/alice3_reproduced_plots";
+  gSystem->mkdir(output_dir, true);
   TCanvas* canvas1 = new TCanvas("c1", "Efficiency vs pT", 800, 600);
   // LEGEND
   // put legend in bottom right corner: same for ambi and seeding plots

@@ -24,7 +24,10 @@ void geo_efficiency_plots(
   const TString actso2_output_base = Utils::outputPathBase(onSTBC);
   const TString geo_studies_base = Utils::aliceProjectsBase(onSTBC) + "acts-studies/geo_studies/";
   const TString rootOutFile = geo_studies_base + "histos/efficiencies/geo_efficiency_plots.root";
-  const TString pdfOutFile = geo_studies_base + "figures/efficiencies/";
+  // figures/<sample>/efficiencies/, the sample being the input path without seed_N
+  const TString pdfOutFile = geo_studies_base + "figures/" + Utils::figureDirName("", pathBases)
+                           + "/efficiencies/";
+  gSystem->mkdir(pdfOutFile, true);
 
   // Plot 1: mean number of hits vs eta (100 bins, etaMin–etaMax)
   TProfile* pHitsAll   = new TProfile("pHitsAll",   ";;Mean number of hits", 100, etaMin, etaMax);
