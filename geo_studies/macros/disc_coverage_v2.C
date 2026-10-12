@@ -1270,7 +1270,7 @@ void disc_coverage_v2(
   const std::tuple<float, float> toleranceOT_mm = {5, 3},
   const unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
   const bool gen3Geometry=true,  // false for samples made with the old (pre Gen3) geometry
-  TString tag="",  // names the histogram file, derived from the sample if empty (so not const)
+  TString tag="",  // names the histogram file and figure directory, derived from the sample if empty (so not const)
   const Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
   // directory in ACTSO2/geometries used for stave placements
   const TString geometryName="geometry_2026_10_02_segmented_realistic")
@@ -1278,6 +1278,10 @@ void disc_coverage_v2(
   const TString actso2_output_base = Utils::outputPathBase(onSTBC);
   const TString alice_projects_base   = Utils::aliceProjectsBase(onSTBC);
   const TString geo_studies_base      = alice_projects_base + "acts-studies/geo_studies/";
+
+  // figures go into figures/geo/<tag or sample>/
+  const TString figure_dir = geo_studies_base + "figures/geo/"
+                           + Utils::figureDirName(tag, pathBases) + "/";
 
   if (tag.IsNull()) {
     // name the histogram file after the sample the sub directories live in
@@ -1292,8 +1296,7 @@ void disc_coverage_v2(
                         actso2_output_base, pathBases,
                         collision_rate, nEvents, runWithMeasurements,
                         toleranceML_mm, toleranceOT_mm, debugLevel, gen3Geometry);
-  analysis.setOutputDirs(geo_studies_base + "figures/geo/occupancy_layer/",
-                         geo_studies_base + "figures/geo/efficiency_layer/");
+  analysis.setOutputDirs(figure_dir + "occupancy_layer/", figure_dir + "efficiency_layer/");
   // The geometry is only needed if the data is filled: always for kRefill/kFillOnly,
   // and for kAuto if there is no histogram file yet. The map is read back if it exists,
   // unless the data is run over again anyway.

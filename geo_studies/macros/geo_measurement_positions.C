@@ -14,12 +14,15 @@
 void geo_measurement_positions(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool onSTBC=false,
-  const bool useOnlyPrimaryTracks = true)
+  const bool useOnlyPrimaryTracks = true,
+  const TString tag="")  // names the figure directory, the sample if empty
 {
   const TString actso2_output_base = Utils::outputPathBase(onSTBC);
   const TString geo_studies_base = Utils::aliceProjectsBase(onSTBC) + "acts-studies/geo_studies/";
   const TString rootOutFile    = geo_studies_base + "histos/geo/geo_measurement_positions.root";
-  const TString pdfOutFile     = geo_studies_base + "figures/geo/geo_measurement_positions.pdf";
+  const TString pdfOutFile     = geo_studies_base + "figures/geo/" + Utils::figureDirName(tag, pathBases)
+                               + "/geo_measurement_positions.pdf";
+  gSystem->mkdir(gSystem->DirName(pdfOutFile), true);
 
   TH2F* hZR = new TH2F("hZR", ";z (mm);r (mm)", 200, 0, 2500, 200, 0, 1000);
   hZR->SetStats(false);

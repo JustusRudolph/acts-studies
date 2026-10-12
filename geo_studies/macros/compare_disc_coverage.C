@@ -16,7 +16,7 @@
 /*
  * Overlays the hit rate vs r, the hit rate per stave and the hit efficiencies of
  * several histogram files made by disc_coverage_v2 (run that first for every sample).
- * Plots go to figures/geo/compare/{occupancy_layer,efficiency_layer}/.
+ * Plots go to figures/geo/<outTag>/compare/{occupancy_layer,efficiency_layer}/.
  */
 
 namespace CompareDiscCoverage {
@@ -103,7 +103,8 @@ void save(TCanvas* c, const TString& path) {
 /*
  * histFiles: histogram files of disc_coverage_v2, relative to histos/geo/ unless the
  * path is absolute. labels: legend entries, the file names without "disc_coverage_" if
- * empty. outTag is appended to every plot name so comparisons don't overwrite each other.
+ * empty. outTag names the figure directory so comparisons don't overwrite each other, the
+ * labels joined by "_vs_" if empty.
  */
 void compare_disc_coverage(const std::vector<TString> histFiles,
                            std::vector<TString> labels = {},
@@ -114,10 +115,6 @@ void compare_disc_coverage(const std::vector<TString> histFiles,
   gStyle->SetOptStat(0);
 
   const TString geo_studies_base = Utils::aliceProjectsBase(onSTBC) + "acts-studies/geo_studies/";
-  const TString occupancyDir = geo_studies_base + "figures/geo/compare/occupancy_layer/";
-  const TString efficiencyDir = geo_studies_base + "figures/geo/compare/efficiency_layer/";
-  const TString suffix = outTag.IsNull() ? TString(".pdf") : "_" + outTag + ".pdf";
-
   std::vector<TFile*> files;
   for (const TString& path : histFiles) {
     files.push_back(TFile::Open(path.BeginsWith("/") ? path
@@ -131,6 +128,16 @@ void compare_disc_coverage(const std::vector<TString> histFiles,
       labels.push_back(name);
     }
   }
+  TString figureDirName = outTag;
+  if (figureDirName.IsNull()) {
+    for (const TString& label : labels) {
+      figureDirName += (figureDirName.IsNull() ? "" : "_vs_") + label;
+    }
+  }
+  const TString compareDir = geo_studies_base + "figures/geo/" + figureDirName + "/compare/";
+  const TString occupancyDir = compareDir + "occupancy_layer/";
+  const TString efficiencyDir = compareDir + "efficiency_layer/";
+  const TString suffix = ".pdf";
 
   // ---- hit rate per area vs r, one canvas per side
   for (int side = 0; side < 2; side++) {

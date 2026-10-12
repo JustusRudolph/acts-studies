@@ -111,7 +111,8 @@ void disc_coverage(
   const bool runWithMeasurements=false,
   const float toleranceML_mm = 3.4,
   const float toleranceOT_mm = 3.4,  // by how much we can go outside nominal outer radius
-  const unsigned debugLevel=0)  // 0 nothing, 1 some, 2 many, 3 all debug prints
+  const unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
+  const TString tag="")  // names the figure directory, the sample if empty
 {
   const TString actso2_output_base = Utils::outputPathBase(onSTBC);
   const TString geo_studies_base = Utils::aliceProjectsBase(onSTBC) + "acts-studies/geo_studies/";
@@ -835,11 +836,14 @@ void disc_coverage(
   }
 
   // --- Draw Canvases ---
-  // all on different canvases, sorted by path: efficiencies into figures/geo/efficiency_layer
-  // hit maps into figures/geo/occupancy_layer
+  // all on different canvases, sorted by path: efficiencies into figures/geo/<tag>/efficiency_layer
+  // hit maps into figures/geo/<tag>/occupancy_layer
   // for everything, only make colz log when there are at least 100 files
-  TString occupancyOutDir = geo_studies_base + "figures/geo/occupancy_layer/";
-  TString efficiencyOutDir = geo_studies_base + "figures/geo/efficiency_layer/";
+  const TString figureDir = geo_studies_base + "figures/geo/" + Utils::figureDirName(tag, pathBases) + "/";
+  TString occupancyOutDir = figureDir + "occupancy_layer/";
+  TString efficiencyOutDir = figureDir + "efficiency_layer/";
+  gSystem->mkdir(occupancyOutDir, true);
+  gSystem->mkdir(efficiencyOutDir, true);
   for (int i = 0; i < nDiscs; i++) {
     // backward
     TCanvas* c_bwd;
