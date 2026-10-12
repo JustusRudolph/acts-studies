@@ -19,6 +19,7 @@
 
 #include "geometry_mapping/ActiveAreaMap.h"
 #include "utils/MultiFileAnalysis.h"
+#include "utils/BasicFunctions.h"
 
 // helper functions
 using Pos = std::array<float, 3>;  // x, y, z
@@ -1271,13 +1272,12 @@ void disc_coverage_v2(
   const bool gen3Geometry=true,  // false for samples made with the old (pre Gen3) geometry
   TString tag="",  // names the histogram file, derived from the sample if empty (so not const)
   const Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
-  // directory in ACTSO2/geometries the sample was simulated with: the active area and
-  // the stave layout are taken from its geom/o2sim_geometry.root
+  // directory in ACTSO2/geometries used for stave placements
   const TString geometryName="geometry_2026_10_02_segmented_realistic")
 {
-  const TString base               = onSTBC ? "/data/alice/jrudolph/" : "/home/justus/projects/";
-  const TString actso2_output_base = base + "alice/ACTSO2/output/";
-  const TString geo_studies_base   = base + "alice/acts-studies/geo_studies/";
+  const TString actso2_output_base = Utils::outputPathBase(onSTBC);
+  const TString alice_projects_base   = Utils::aliceProjectsBase(onSTBC);
+  const TString geo_studies_base      = alice_projects_base + "acts-studies/geo_studies/";
 
   if (tag.IsNull()) {
     // name the histogram file after the sample the sub directories live in
@@ -1303,7 +1303,7 @@ void disc_coverage_v2(
   if (willFill &&
       !analysis.loadActiveAreaMap(
         geo_studies_base + "histos/geo/active_area_map_" + tag + ".root",
-        base + "alice/ACTSO2/geometries/" + geometryName + "/geom/o2sim_geometry.root",
+        alice_projects_base + "ACTSO2/geometries/" + geometryName + "/geom/o2sim_geometry.root",
         rerun)) {
     std::cerr << "Error: Could not get the active area map for " << geometryName
               << " - stopping." << std::endl;
