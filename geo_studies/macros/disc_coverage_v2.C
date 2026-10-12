@@ -187,6 +187,12 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     effDisc_fwd_outside_nominal_ring = bindHistogram<TEfficiency>(
       "effDisc_fwd_outside_nominal_ring", "Hit efficiency by forward layer (outer ring);Forward disc layer;Efficiency",
       nDiscs, -0.5, nDiscs - 0.5);
+    hTotalRate_bwd = bindHistogram<TH1D>(
+      "hTotalRate_bwd", "Total hit rate by backward layer;Backward disc layer;Hit rate (s^{-1})",
+      nDiscs, -0.5, nDiscs - 0.5);
+    hTotalRate_fwd = bindHistogram<TH1D>(
+      "hTotalRate_fwd", "Total hit rate by forward layer;Forward disc layer;Hit rate (s^{-1})",
+      nDiscs, -0.5, nDiscs - 0.5);
 
     for (int i = 0; i < nDiscs; i++) {
       hHitsXY_bwd[i] = bindHistogram<TH2F>("hHitsXY_" + bwdLabels[i],
@@ -842,6 +848,13 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
       // stave reads out. Scale() takes the (Poisson) errors along.
       hStaveRate_bwd[i]->Scale(rate_scale_factor);
       hStaveRate_fwd[i]->Scale(rate_scale_factor);
+      // total rate of the layer, from all its hits: summing hStaveRate would miss the
+      // split staves, which only show the rate per piece
+      for (int side = 0; side < 2; side++) {
+        TH1D* hTotal = (side == 0) ? hTotalRate_bwd : hTotalRate_fwd;
+        hTotal->SetBinContent(i + 1, nDiscHits[side][i] * rate_scale_factor);
+        hTotal->SetBinError(i + 1, std::sqrt(nDiscHits[side][i]) * rate_scale_factor);
+      }
       // a stave split by the beam pipe is read out per piece: show the rate per piece
       for (int side = 0; side < 2 && fActiveMap; side++) {
         TH1D* hStave = (side == 0) ? hStaveRate_bwd[i] : hStaveRate_fwd[i];
@@ -1249,6 +1262,8 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   std::array<TH1D*, nDiscs> hHitRate_wrtR_bwd, hHitRate_wrtR_fwd;
   // total hit rate per stave (not per area), indexed by stave ID
   std::array<TH1D*, nDiscs> hStaveRate_bwd, hStaveRate_fwd;
+  // total hit rate of each layer, all staves together
+  TH1D *hTotalRate_bwd, *hTotalRate_fwd;
   std::array<TEfficiency*, nDiscs> effDisc_bwd_wrt_r, effDisc_fwd_wrt_r;
   TEfficiency *effDisc_bwd_nominal, *effDisc_fwd_nominal;
   TEfficiency *effDisc_bwd_outside_nominal_ring, *effDisc_fwd_outside_nominal_ring;

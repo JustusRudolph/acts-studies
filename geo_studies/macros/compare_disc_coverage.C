@@ -9,6 +9,7 @@
 #include <TStyle.h>
 #include <TSystem.h>
 #include <algorithm>
+#include <iostream>
 #include <vector>
 
 #include "../../Utils/BasicFunctions.h"
@@ -44,13 +45,13 @@ std::vector<T*> getAll(const std::vector<TFile*>& files, const TString& name) {
   return objs;
 }
 
-// top right, or centred at (0.5, 0.2) with smaller text if bottomCentre
+// top right, or centred at (bottomCentreX, 0.2) with smaller text if bottomCentreX >= 0
 TLegend* makeLegend(const std::vector<TObject*>& objs, const std::vector<TString>& labels,
-                    bool bottomCentre = false) {
+                    double bottomCentreX = -1) {
   TLegend* leg;
-  if (bottomCentre) {
+  if (bottomCentreX >= 0) {
     const double halfHeight = 0.5 * 0.045 * objs.size();
-    leg = new TLegend(0.3, 0.2 - halfHeight, 0.7, 0.2 + halfHeight);
+    leg = new TLegend(bottomCentreX - 0.2, 0.2 - halfHeight, bottomCentreX + 0.2, 0.2 + halfHeight);
     leg->SetTextSize(0.035);
   } else {
     leg = new TLegend(0.5, 0.7, 0.88, 0.88);
@@ -63,7 +64,7 @@ TLegend* makeLegend(const std::vector<TObject*>& objs, const std::vector<TString
 
 // draw all histograms on the current pad, with a y range that fits all of them
 void drawHists(std::vector<TH1D*> hists, const std::vector<TString>& labels,
-               const TString& title, bool logy, bool bottomLegend = false) {
+               const TString& title, bool logy, double legendX = -1) {
   gPad->SetLeftMargin(0.15);  // y label cut off otherwise
   gPad->SetLogy(logy);
   double yMin = 0, yMax = 0;
@@ -82,7 +83,7 @@ void drawHists(std::vector<TH1D*> hists, const std::vector<TString>& labels,
     hists[f]->SetMaximum(logy ? 2 * yMax : 1.1 * yMax);
     hists[f]->Draw(f == 0 ? "EP" : "EP SAME");
   }
-  makeLegend(std::vector<TObject*>(hists.begin(), hists.end()), labels, bottomLegend)->Draw();
+  makeLegend(std::vector<TObject*>(hists.begin(), hists.end()), labels, legendX)->Draw();
 }
 
 void drawEffs(std::vector<TEfficiency*> effs, const std::vector<TString>& labels,
@@ -99,7 +100,7 @@ void drawEffs(std::vector<TEfficiency*> effs, const std::vector<TString>& labels
   gPad->Update();  // the painted graph only exists after this
   effs[0]->GetPaintedGraph()->SetMinimum(0);
   effs[0]->GetPaintedGraph()->SetMaximum(1.05);
-  makeLegend(std::vector<TObject*>(effs.begin(), effs.end()), labels, true)->Draw();
+  makeLegend(std::vector<TObject*>(effs.begin(), effs.end()), labels, 0.6)->Draw();
 }
 
 void save(TCanvas* c, const TString& path) {
@@ -171,10 +172,31 @@ void compare_disc_coverage(const std::vector<TString> histFiles,
         c->cd(3 * side + k + 1);
         drawHists(getAll<TH1D>(files, "hStaveRate_" + label(side, disc)), labels,
                   labelInPlot(side, disc) + ": hit rate per stave (split: per half);Stave ID;Hit rate (s^{-1})",
-                  false, true);
+                  false, 0.5);
       }
     }
     save(c, occupancyDir + "hitRate_per_stave_" + (det == 0 ? "ML" : "OT") + suffix);
+  }
+
+  // ---- total hit rate of each layer (all staves summed), backward left, forward right
+  const bool haveTotalRate = std::all_of(files.begin(), files.end(), [](TFile* f) {
+    return f->Get("hTotalRate_bwd") && f->Get("hTotalRate_fwd");
+  });
+  if (haveTotalRate) {
+    TCanvas* c = new TCanvas("c_totalRate", "Total hit rate by layer", 1400, 600);
+    c->Divide(2, 1);
+    for (int side = 0; side < 2; side++) {
+      c->cd(side + 1);
+      const TString sideName = side == 0 ? "bwd" : "fwd";
+      drawHists(getAll<TH1D>(files, "hTotalRate_" + sideName), labels,
+                TString(side == 0 ? "Backward" : "Forward") +
+                  " total hit rate by layer;Layer;Hit rate (s^{-1})",
+                false, 0.5);
+    }
+    save(c, occupancyDir + "hitRate_total_by_layer" + suffix);
+  } else {
+    std::cout << "Not all files have hTotalRate_{bwd,fwd}, skipping the total hit rate plot "
+              << "(rerun disc_coverage_v2 with kRefill to add it)." << std::endl;
   }
 
   // ---- hit efficiency by layer: nominal acceptance on top, tolerance ring below
