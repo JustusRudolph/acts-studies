@@ -38,10 +38,10 @@ void phi_dep_eff(const std::vector<TString>& phi_eff_input_dirs,
       phi_eff_file->Close();
       continue;
     }
-    std::vector<std::vector<unsigned>>* matched_idxs = nullptr;
+    std::vector<bool>* matched = nullptr;
     std::vector<float>* phi = nullptr;
     std::vector<float>* eta_phi = nullptr;
-    phi_eff_mctree->SetBranchAddress("matched_track_idxs", &matched_idxs);
+    phi_eff_mctree->SetBranchAddress("matched", &matched);
     phi_eff_mctree->SetBranchAddress("phi", &phi);
     phi_eff_mctree->SetBranchAddress("eta", &eta_phi);
 
@@ -49,12 +49,10 @@ void phi_dep_eff(const std::vector<TString>& phi_eff_input_dirs,
       phi_eff_mctree->GetEntry(i_ev);
       for (size_t i_mcp = 0; i_mcp < phi->size(); i_mcp++) {
         if (near_central_eta_acceptance_phi_eff(eta_phi->at(i_mcp))) {
-          eff_wrt_phi_near_central->Fill(!( matched_idxs->at(i_mcp).empty() ),
-                                         phi->at(i_mcp));
+          eff_wrt_phi_near_central->Fill(matched->at(i_mcp), phi->at(i_mcp));
         }
         if (complete_central_eta_acceptance_phi_eff(eta_phi->at(i_mcp))) {
-          eff_wrt_phi_complete_central->Fill(!( matched_idxs->at(i_mcp).empty() ),
-                                             phi->at(i_mcp));
+          eff_wrt_phi_complete_central->Fill(matched->at(i_mcp), phi->at(i_mcp));
         }
       }  // loop over mc particles in event
     }  // loop over entries (events) in file
@@ -135,16 +133,16 @@ void alice3_reproduce(const bool onSTBC=false,
     std::vector<int>* pdg = nullptr;
     std::vector<unsigned>* generation = nullptr;
     std::vector<unsigned>* nHits = nullptr;
-    std::vector<std::vector<unsigned>>* matchedIdxs = nullptr;
-    std::vector<std::vector<unsigned>>* matchedIdxs_Seed = nullptr;
+    std::vector<bool>* matched = nullptr;
+    std::vector<bool>* matched_Seed = nullptr;
 
-    sim_tree->SetBranchAddress("eta",                     &eta);
-    sim_tree->SetBranchAddress("pt",                      &pt);
-    sim_tree->SetBranchAddress("particle_type",           &pdg);
-    sim_tree->SetBranchAddress("generation",              &generation);
-    sim_tree->SetBranchAddress("number_of_hits",          &nHits);
-    sim_tree->SetBranchAddress("matched_track_idxs",      &matchedIdxs);
-    sim_tree->SetBranchAddress("seed_matched_track_idxs", &matchedIdxs_Seed);
+    sim_tree->SetBranchAddress("eta",            &eta);
+    sim_tree->SetBranchAddress("pt",             &pt);
+    sim_tree->SetBranchAddress("particle_type",  &pdg);
+    sim_tree->SetBranchAddress("generation",     &generation);
+    sim_tree->SetBranchAddress("number_of_hits", &nHits);
+    sim_tree->SetBranchAddress("matched",        &matched);
+    sim_tree->SetBranchAddress("matched",        &matched_Seed);
 
 
     for (unsigned i_ev = 0; i_ev < sim_tree->GetEntries(); i_ev++) {
@@ -159,14 +157,12 @@ void alice3_reproduce(const bool onSTBC=false,
         if (Cuts::alice3_default_cut(nHits->at(i_mcp),  // allow all eta for eta plot
                                      generation->at(i_mcp))) {
           if (eta->at(i_mcp) < abs_eta_max) { // fill pt plots only for central eta
-            eff_hists_central[i_part]->Fill(!( matchedIdxs->at(i_mcp).empty() ),
-                                            pt->at(i_mcp));
-            eff_seeding_hists_central[i_part]->Fill(!( matchedIdxs_Seed->at(i_mcp).empty() ),
+            eff_hists_central[i_part]->Fill(matched->at(i_mcp), pt->at(i_mcp));
+            eff_seeding_hists_central[i_part]->Fill(matched_Seed->at(i_mcp),
                                                     pt->at(i_mcp));
           }
           if (pt->at(i_mcp) > pT_cut_for_eta_eff) {  // fill eta plot only for pT > 0.5 GeV
-            eff_hists_eta[i_part]->Fill(!( matchedIdxs->at(i_mcp).empty() ),
-                                        eta->at(i_mcp));
+            eff_hists_eta[i_part]->Fill(matched->at(i_mcp), eta->at(i_mcp));
           }
         }
       }
