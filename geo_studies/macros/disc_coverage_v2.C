@@ -4,6 +4,7 @@
 #include <TFile.h>
 #include <TH1D.h>
 #include <TH2F.h>
+#include <TH2Poly.h>
 #include <TLegend.h>
 #include <TMath.h>
 #include <TString.h>
@@ -871,6 +872,74 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
   }
 
   // ----------------------------------------------------------------- plotting
+  /*
+   * Hits per sensor, summed from the fine xy hitmap: every bin goes to the sensor(s)
+   * of the active area map its centre is on, split equally where two sensors overlap
+   * (a track through the overlap mostly hits both, and the hitmap has no z to tell
+   * which one a hit was on). A bin whose centre is just off a sensor (at the edges)
+   * goes to the sensor(s) its corners are on. Returns one entry per sensors() entry;
+   * nUnassigned counts the hits in bins touching no sensor at all.
+   */
+  std::vector<double> hitsPerSensor(const TH2F* hFine, int side, int disc,
+                                    double& nUnassigned) const {
+    std::vector<double> hits(fActiveMap->sensors(side, disc).size(), 0.);
+    nUnassigned = 0;
+    const TAxis* ax = hFine->GetXaxis();
+    const TAxis* ay = hFine->GetYaxis();
+    for (int bx = 1; bx <= ax->GetNbins(); bx++) {
+      for (int by = 1; by <= ay->GetNbins(); by++) {
+        const double content = hFine->GetBinContent(bx, by);
+        if (content == 0) continue;
+        std::vector<int> onSensors =
+          fActiveMap->sensorsAt(side, disc, ax->GetBinCenter(bx), ay->GetBinCenter(by));
+        if (onSensors.empty()) {
+          for (double x : {ax->GetBinLowEdge(bx), ax->GetBinUpEdge(bx)})
+            for (double y : {ay->GetBinLowEdge(by), ay->GetBinUpEdge(by)})
+              for (int idx : fActiveMap->sensorsAt(side, disc, x, y))
+                if (std::find(onSensors.begin(), onSensors.end(), idx) == onSensors.end())
+                  onSensors.push_back(idx);
+        }
+        if (onSensors.empty()) {
+          nUnassigned += content;
+          continue;
+        }
+        for (int idx : onSensors) hits[idx] += content / onSensors.size();
+      }
+    }
+    return hits;
+  }
+
+  // draws hitsPerSensor() of hFine, one box per sensor, as xy_hitmap_sensor_<label>.pdf
+  void plotHitsPerSensor(const TH2F* hFine, int side, int disc, const TString& label,
+                         const TString& labelInPlot) {
+    if (!fActiveMap) return;
+    double nUnassigned = 0;
+    const std::vector<double> hits = hitsPerSensor(hFine, side, disc, nUnassigned);
+    const auto& sensors = fActiveMap->sensors(side, disc);
+    const double xyMaxFine = hFine->GetXaxis()->GetXmax();
+    TH2Poly* hSensors = new TH2Poly("hHitsPerSensor_" + label, "", -xyMaxFine, xyMaxFine,
+                                    -xyMaxFine, xyMaxFine);
+    hSensors->SetDirectory(nullptr);
+    for (const auto& sensor : sensors)
+      hSensors->AddBin(sensor.xMin, sensor.yMin, sensor.xMax, sensor.yMax);
+    double maxHits = 0;
+    for (size_t idx = 0; idx < hits.size(); idx++) {
+      hSensors->SetBinContent(idx + 1, hits[idx]);  // TH2Poly bins count from 1
+      maxHits = std::max(maxHits, hits[idx]);
+    }
+    printf("%s: at most %.0f hits on one sensor, %.0f of %.0f hits on no sensor\n",
+           label.Data(), maxHits, nUnassigned, hFine->Integral());
+
+    TCanvas* c = new TCanvas("c_hitsPerSensor_" + label, label + " hits per sensor", 600, 500);
+    hSensors->SetMinimum(1);
+    gPad->SetLeftMargin(0.15);  // y label cut off otherwise
+    gPad->SetRightMargin(0.15);  // important for colz - leaves room for the z-axis palette
+    hSensors->Draw("colz");
+    if (useLogZ()) gPad->SetLogz();
+    hSensors->SetTitle(labelInPlot + ": Hits per sensor;x (mm);y (mm)");
+    saveCanvas(c, fOccupancyOutDir + "xy_hitmap_sensor_" + label + ".pdf");
+  }
+
   void plot() override {
     // all on different canvases, sorted by path: efficiencies into
     // figures/geo/efficiency_layer, hit maps into figures/geo/occupancy_layer
@@ -911,6 +980,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
         hHitsXY_bwd[i]->SetTitle(bwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
       }
       saveCanvas(c_bwd, fOccupancyOutDir + "xy_hitmap_" + bwdLabels[i] + ".pdf");
+      plotHitsPerSensor(hHitsXY_bwd[i], 0, i, bwdLabels[i], bwdLabelsInPlot[i]);
 
       TCanvas* c_bwd_primary = new TCanvas(
         "c_bwd_primary_" + bwdLabels[i], bwdLabels[i] + " hit coverage from primaries", 600, 500);
@@ -1034,6 +1104,7 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
         hHitsXY_fwd[i]->SetTitle(fwdLabelsInPlot[i] + ": Hit positions;x (mm);y (mm)");
       }
       saveCanvas(c_fwd, fOccupancyOutDir + "xy_hitmap_" + fwdLabels[i] + ".pdf");
+      plotHitsPerSensor(hHitsXY_fwd[i], 1, i, fwdLabels[i], fwdLabelsInPlot[i]);
 
       TCanvas* c_fwd_primary = new TCanvas(
         "c_fwd_primary_" + fwdLabels[i], fwdLabels[i] + " hit coverage for primaries", 600, 500);
@@ -1312,20 +1383,25 @@ void disc_coverage_v2(
                         collision_rate, nEvents, runWithMeasurements,
                         toleranceML_mm, toleranceOT_mm, debugLevel, gen3Geometry);
   analysis.setOutputDirs(figure_dir + "occupancy_layer/", figure_dir + "efficiency_layer/");
-  // The geometry is only needed if the data is filled: always for kRefill/kFillOnly,
-  // and for kAuto if there is no histogram file yet. The map is read back if it exists,
-  // unless the data is run over again anyway.
+  // The map is needed if the data is filled: always for kRefill/kFillOnly, and for
+  // kAuto if there is no histogram file yet. It is read back if it exists, unless the
+  // data is run over again anyway.
   const bool rerun = mode == Utils::AnalysisBase::kRefill || mode == Utils::AnalysisBase::kFillOnly;
   const bool willFill = rerun ||
     (mode == Utils::AnalysisBase::kAuto && gSystem->AccessPathName(analysis.histFilePath()));
-  if (willFill &&
-      !analysis.loadActiveAreaMap(
-        geo_studies_base + "histos/geo/active_area_map_" + tag + ".root",
-        alice_projects_base + "ACTSO2/geometries/" + geometryName + "/geom/o2sim_geometry.root",
-        rerun)) {
+  // When only plotting it is just needed for the hits per sensor, which are left out
+  // without it.
+  const bool haveMap = analysis.loadActiveAreaMap(
+    geo_studies_base + "histos/geo/active_area_map_" + tag + ".root",
+    alice_projects_base + "ACTSO2/geometries/" + geometryName + "/geom/o2sim_geometry.root",
+    rerun);
+  if (!haveMap && willFill) {
     std::cerr << "Error: Could not get the active area map for " << geometryName
               << " - stopping." << std::endl;
     return;
   }
+  if (!haveMap)
+    std::cerr << "Warning: No active area map for " << geometryName
+              << ", not plotting the hits per sensor." << std::endl;
   analysis.run(mode);
 }

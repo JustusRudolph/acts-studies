@@ -9,8 +9,10 @@
 // are stored: x midpoint, x range of their active sensors and the z of those
 // sensors. They give the stave IDs, so neither the number of staves nor their pitch
 // has to be hard coded per geometry, and the z resolves which stave a hit is on
-// where neighbouring staves overlap in x. Both are written to a ROOT file and read
-// back from it on the next run, so the geometry only has to be walked once:
+// where neighbouring staves overlap in x. The sensors themselves are kept too
+// (footprint and z), to find the sensor(s) at a position. All of it is written to a
+// ROOT file and read back from it on the next run, so the geometry only has to be
+// walked once:
 //
 //   GeometryMapping::ActiveAreaMap map("histos/geo/active_area_map_tag.root",
 //                                      ".../geom/o2sim_geometry.root");
@@ -18,6 +20,7 @@
 //   if (!map.loadOrBuild(rebuild)) ...  // rebuild: ignore an existing map file
 //   bool active = map.isActive(side, disc, x_mm, y_mm);
 //   int stave = map.staveID(side, disc, x_mm, z_mm);
+//   std::vector<int> onSensors = map.sensorsAt(side, disc, x_mm, y_mm);  // or with z_mm
 //
 // Discs are indexed like in disc_coverage_v2.C: side 0 is backward (z < 0), side 1
 // forward, and within a side the six discs go by increasing |z| (3 ML, then 3 OT).
@@ -147,6 +150,38 @@ class ActiveAreaMap {
     return std::max(nNegative, (int)fStaves[side][disc].size() - nNegative);
   }
 
+  // One active sensor of a disc (mm): its footprint in (x, y) and its z
+  struct Sensor {
+    double xMin, xMax, yMin, yMax;
+    double z;
+  };
+  // the sensors of a disc, sorted by xMin
+  const std::vector<Sensor>& sensors(int side, int disc) const { return fSensors[side][disc]; }
+
+  /*
+   * Indices (into sensors()) of the sensors whose footprint contains (x, y). Without z
+   * that is every one of them, i.e. two where neighbouring staves overlap in x. With z
+   * (where the hit is) only the one closest in z. Empty if (x, y) is not on a sensor.
+   */
+  std::vector<int> sensorsAt(int side, int disc, double x_mm, double y_mm,
+                             double z_mm = std::numeric_limits<double>::quiet_NaN()) const {
+    const std::vector<Sensor>& sens = fSensors[side][disc];
+    std::vector<int> found;
+    // only sensors with xMin in [x - widest sensor, x] can contain x
+    auto first = std::lower_bound(sens.begin(), sens.end(), x_mm - fMaxSensorWidth[side][disc],
+                                  [](const Sensor& s, double x) { return s.xMin < x; });
+    for (auto it = first; it != sens.end() && it->xMin <= x_mm; ++it)
+      if (x_mm <= it->xMax && y_mm >= it->yMin && y_mm <= it->yMax)
+        found.push_back(it - sens.begin());
+    if (!std::isnan(z_mm) && found.size() > 1) {
+      const int closest = *std::min_element(found.begin(), found.end(), [&](int a, int b) {
+        return std::abs(sens[a].z - z_mm) < std::abs(sens[b].z - z_mm);
+      });
+      found = {closest};
+    }
+    return found;
+  }
+
   /*
    * Active area (mm^2) in each of nBins uniform r bins over [0, rMax_mm]. Map bins are
    * 0/1 flags and the hits inside a bin are not located any finer, so every active bin
@@ -180,6 +215,21 @@ class ActiveAreaMap {
     return Form("staves_%s_disc_%d", side == 0 ? "bwd" : "fwd", disc);
   }
   static constexpr int nStaveFields = 5;
+  // stored flat as xMin, xMax, yMin, yMax, z per sensor
+  static TString sensorsName(int side, int disc) {
+    return Form("sensors_%s_disc_%d", side == 0 ? "bwd" : "fwd", disc);
+  }
+  static constexpr int nSensorFields = 5;
+
+  // sorts the sensors of a disc by xMin and notes the widest one, for sensorsAt()
+  void setSensors(int side, int disc, std::vector<Sensor> sens) {
+    std::sort(sens.begin(), sens.end(),
+              [](const Sensor& a, const Sensor& b) { return a.xMin < b.xMin; });
+    fMaxSensorWidth[side][disc] = 0;
+    for (const Sensor& s : sens)
+      fMaxSensorWidth[side][disc] = std::max(fMaxSensorWidth[side][disc], s.xMax - s.xMin);
+    fSensors[side][disc] = std::move(sens);
+  }
 
   int nStavesNegativeX(int side, int disc) const {
     const std::vector<Stave>& st = fStaves[side][disc];
@@ -203,6 +253,8 @@ class ActiveAreaMap {
       }
     for (auto& side : fStaves)
       for (auto& st : side) st.clear();
+    for (auto& side : fSensors)
+      for (auto& sens : side) sens.clear();
   }
 
   bool read() {
@@ -216,16 +268,22 @@ class ActiveAreaMap {
         TH2C* hitmap = dynamic_cast<TH2C*>(file->Get(mapName(side, disc)));
         TVectorD* stavesProperties =
           dynamic_cast<TVectorD*>(file->Get(stavesName(side, disc)));
+        TVectorD* sensorsProperties =
+          dynamic_cast<TVectorD*>(file->Get(sensorsName(side, disc)));
         // If hitmap does not exist, the disc is not in the hitmap, staves are not in the disc,
         // or the number of stave properties (fields) is not a multiple of the number of fields
         // then we have a problem and need to stop
+        // (maps written before the sensors were stored have no sensors_*: rebuilt as well)
         if (!hitmap || !binningMatches(hitmap, disc) || !stavesProperties ||
-            stavesProperties->GetNrows() % nStaveFields != 0) {
+            stavesProperties->GetNrows() % nStaveFields != 0 || !sensorsProperties ||
+            sensorsProperties->GetNrows() % nSensorFields != 0) {
           std::cout << "Active area map " << fMapFilePath << " is missing "
-                    << mapName(side, disc) << "/" << stavesName(side, disc)
+                    << mapName(side, disc) << "/" << stavesName(side, disc) << "/"
+                    << sensorsName(side, disc)
                     << " or binned differently - rebuilding it." << std::endl;
           delete hitmap;
           delete stavesProperties;
+          delete sensorsProperties;
           input_ok = false;
           break;
         }
@@ -240,6 +298,13 @@ class ActiveAreaMap {
              (*stavesProperties)[i + 3],
              static_cast<int>((*stavesProperties)[i + 4])});
         delete stavesProperties;
+        std::vector<Sensor> sens;
+        for (int i = 0; i < sensorsProperties->GetNrows(); i += nSensorFields)
+          sens.push_back({(*sensorsProperties)[i], (*sensorsProperties)[i + 1],
+                          (*sensorsProperties)[i + 2], (*sensorsProperties)[i + 3],
+                          (*sensorsProperties)[i + 4]});
+        setSensors(side, disc, std::move(sens));
+        delete sensorsProperties;
       }
     }
     file->Close();
@@ -264,6 +329,11 @@ class ActiveAreaMap {
           flat.insert(flat.end(),
                       {stave.x, stave.xMin, stave.xMax, stave.z, (double)stave.nPieces});
         TVectorD(flat.size(), flat.data()).Write(stavesName(side, disc));
+        std::vector<double> flatSensors;
+        for (const Sensor& sensor : fSensors[side][disc])
+          flatSensors.insert(flatSensors.end(),
+                             {sensor.xMin, sensor.xMax, sensor.yMin, sensor.yMax, sensor.z});
+        TVectorD(flatSensors.size(), flatSensors.data()).Write(sensorsName(side, disc));
       }
     }
     file->Close();
@@ -411,6 +481,10 @@ class ActiveAreaMap {
           }
         }
         fMaps[side][disc] = h;
+        std::vector<Sensor> sens;
+        for (const Footprint& f : sensorsPerLayer[layer])
+          sens.push_back({f.xMin, f.xMax, f.yMin, f.yMax, f.z});
+        setSensors(side, disc, std::move(sens));
 
         // the pieces of a split stave sit at the same x: keep one midpoint per stave
         // and count its pieces
@@ -475,6 +549,8 @@ class ActiveAreaMap {
   std::array<float, nDiscs> fXYMax{};
   std::array<std::array<TH2C*, nDiscs>, nSides> fMaps{};
   std::array<std::array<std::vector<Stave>, nDiscs>, nSides> fStaves;
+  std::array<std::array<std::vector<Sensor>, nDiscs>, nSides> fSensors;
+  std::array<std::array<double, nDiscs>, nSides> fMaxSensorWidth{};
 };
 
 }  // namespace GeometryMapping
