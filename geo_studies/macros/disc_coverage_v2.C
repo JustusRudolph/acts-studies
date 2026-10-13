@@ -911,7 +911,24 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     return hits;
   }
 
-  // draws hitsPerSensor() of hFine, one box per sensor, as xy_hitmap_sensor_<label>.pdf
+  /*
+   * Hit rate (Hz) per hit of a disc: the collision rate over the events used, as for the
+   * other rates. The events used leave out files skipped as incomplete, which is only
+   * known while filling, so it is taken from hTotalRate (all hits of the disc times this
+   * factor) over the hits in the hitmap. Files from before hTotalRate existed fall back
+   * to the collision rate over nEvents, which is off if files were skipped.
+   */
+  double rateScaleFactor(const TH2F* hFine, int side, int disc) const {
+    const TH1D* hTotal = (side == 0) ? hTotalRate_bwd : hTotalRate_fwd;
+    const double nHits = hFine->Integral(0, hFine->GetNbinsX() + 1, 0, hFine->GetNbinsY() + 1);
+    if (hTotal && nHits > 0) return hTotal->GetBinContent(disc + 1) / nHits;
+    std::cout << "No hTotalRate in the histogram file, scaling the hits per sensor with "
+              << "collision rate / nEvents (files skipped as incomplete not accounted for)."
+              << std::endl;
+    return fCollisionRate * 1e3 / fNEvents;
+  }
+
+  // draws hitsPerSensor() of hFine as a rate, one box per sensor, as xy_hitmap_sensor_<label>.pdf
   void plotHitsPerSensor(const TH2F* hFine, int side, int disc, const TString& label,
                          const TString& labelInPlot) {
     if (!fActiveMap) return;
@@ -924,22 +941,24 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
     hSensors->SetDirectory(nullptr);
     for (const auto& sensor : sensors)
       hSensors->AddBin(sensor.xMin, sensor.yMin, sensor.xMax, sensor.yMax);
+    const double scale_kHz = rateScaleFactor(hFine, side, disc) / 1e3;  // Hz -> kHz
     double maxHits = 0;
     for (size_t idx = 0; idx < hits.size(); idx++) {
-      hSensors->SetBinContent(idx + 1, hits[idx]);  // TH2Poly bins count from 1
+      hSensors->SetBinContent(idx + 1, hits[idx] * scale_kHz);  // TH2Poly bins count from 1
       maxHits = std::max(maxHits, hits[idx]);
     }
-    printf("%s: at most %.0f hits on one sensor, %.0f of %.0f hits on no sensor\n",
-           label.Data(), maxHits, nUnassigned, hFine->Integral());
+    printf("%s: at most %.0f hits (%.0f kHz) on one sensor, %.0f of %.0f hits on no sensor\n",
+           label.Data(), maxHits, maxHits * scale_kHz, nUnassigned, hFine->Integral());
 
     TCanvas* c = new TCanvas("c_hitsPerSensor_" + label, label + " hits per sensor", 600, 500);
-    hSensors->SetMinimum(900);
-    hSensors->SetMaximum(100100);
+    hSensors->SetMinimum(20);    // kHz
+    hSensors->SetMaximum(2500);  // kHz
+    hSensors->GetZaxis()->SetNoExponent();  // the "x10^3" would sit on the axis title
     gPad->SetLeftMargin(0.15);  // y label cut off otherwise
-    gPad->SetRightMargin(0.15);  // important for colz - leaves room for the z-axis palette
+    gPad->SetRightMargin(0.2);  // room for the z-axis palette, its labels and title
     hSensors->Draw("colz");
     if (useLogZ()) gPad->SetLogz();
-    hSensors->SetTitle(labelInPlot + ": Hits per sensor;x (mm);y (mm)");
+    hSensors->SetTitle(labelInPlot + ": Hit rate per sensor;x (mm);y (mm);Hit rate (kHz)");
     saveCanvas(c, fOccupancyOutDir + "xy_hitmap_sensor_" + label + ".pdf");
   }
 
