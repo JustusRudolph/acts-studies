@@ -884,17 +884,19 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
                                     double& nUnassigned) const {
     std::vector<double> hits(fActiveMap->sensors(side, disc).size(), 0.);
     nUnassigned = 0;
-    const TAxis* ax = hFine->GetXaxis();
-    const TAxis* ay = hFine->GetYaxis();
-    for (int bx = 1; bx <= ax->GetNbins(); bx++) {
-      for (int by = 1; by <= ay->GetNbins(); by++) {
-        const double content = hFine->GetBinContent(bx, by);
+    const TAxis* hitmap_xAxis = hFine->GetXaxis();
+    const TAxis* hitmap_yAxis = hFine->GetYaxis();
+    for (int xbin = 1; xbin <= hitmap_xAxis->GetNbins(); xbin++) {
+      for (int ybin = 1; ybin <= hitmap_yAxis->GetNbins(); ybin++) {
+        const double content = hFine->GetBinContent(xbin, ybin);
         if (content == 0) continue;
         std::vector<int> onSensors =
-          fActiveMap->sensorsAt(side, disc, ax->GetBinCenter(bx), ay->GetBinCenter(by));
+          fActiveMap->sensorsAt(side, disc, hitmap_xAxis->GetBinCenter(xbin),
+                                hitmap_yAxis->GetBinCenter(ybin));
         if (onSensors.empty()) {
-          for (double x : {ax->GetBinLowEdge(bx), ax->GetBinUpEdge(bx)})
-            for (double y : {ay->GetBinLowEdge(by), ay->GetBinUpEdge(by)})
+          // check the corners of the bin to see if sensors are covered after all
+          for (double x : {hitmap_xAxis->GetBinLowEdge(xbin), hitmap_xAxis->GetBinUpEdge(xbin)})
+            for (double y : {hitmap_yAxis->GetBinLowEdge(ybin), hitmap_yAxis->GetBinUpEdge(ybin)})
               for (int idx : fActiveMap->sensorsAt(side, disc, x, y))
                 if (std::find(onSensors.begin(), onSensors.end(), idx) == onSensors.end())
                   onSensors.push_back(idx);
@@ -931,7 +933,8 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
            label.Data(), maxHits, nUnassigned, hFine->Integral());
 
     TCanvas* c = new TCanvas("c_hitsPerSensor_" + label, label + " hits per sensor", 600, 500);
-    hSensors->SetMinimum(1);
+    hSensors->SetMinimum(900);
+    hSensors->SetMaximum(100100);
     gPad->SetLeftMargin(0.15);  // y label cut off otherwise
     gPad->SetRightMargin(0.15);  // important for colz - leaves room for the z-axis palette
     hSensors->Draw("colz");
