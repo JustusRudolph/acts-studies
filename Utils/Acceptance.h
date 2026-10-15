@@ -19,7 +19,8 @@ namespace Utils {
       : m_pt_range(nullptr),
         m_eta_range(nullptr),
         m_abs_eta_range(nullptr),
-        m_phi_range(nullptr) {}
+        m_phi_range(nullptr),
+        m_min_hits(0) {}
 
     ~Acceptance() = default;
 
@@ -54,6 +55,11 @@ namespace Utils {
 
     Acceptance& addPhiRange(float phimin, float phimax) {
       m_phi_range = new std::tuple<float, float>(phimin, phimax);
+      return *this;
+    }
+
+    Acceptance& addMinHits(int min_hits) {
+      m_min_hits = min_hits;
       return *this;
     }
 
@@ -105,8 +111,12 @@ namespace Utils {
       return *this;
     }
 
-    bool isAccepted(float pt, float eta, float phi, int particle) const {
+    // nHits: e.g. the measurements on a track, only checked if a minimum is set
+    bool isAccepted(float pt, float eta, float phi, int particle, int nHits = -1) const {
       // first check if range is set, then whether particle falls within range
+      if (m_min_hits > 0 && nHits < m_min_hits) {
+        return false;
+      }
       if (m_pt_range && (pt < std::get<0>(*m_pt_range) || pt > std::get<1>(*m_pt_range))) {
         return false;
       }
@@ -135,6 +145,7 @@ namespace Utils {
     std::tuple<float, float>* m_eta_range;
     std::tuple<float, float>* m_abs_eta_range;
     std::tuple<float, float>* m_phi_range;
+    int m_min_hits;
 
     std::unordered_set<int> m_particles_to_accept;
     std::unordered_set<int> m_particles_to_reject;
