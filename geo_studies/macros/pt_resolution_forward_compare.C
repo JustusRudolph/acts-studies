@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "../../Utils/BasicFunctions.h"
+#include "../../Utils/Acceptance.h"
 
 /*
  * Relative pT resolution, (pT_reco - pT_true) / pT_true, of reconstructible particles
@@ -40,17 +41,11 @@ const std::vector<int> colors = {kBlack, kRed + 1, kBlue + 1, kGreen + 2, kMagen
 
 // pT bin edges (GeV) above ptMin, and the eta bin width
 const std::vector<double> ptEdges = {0.5, 0.75, 1., 1.5, 2., 3., 5., 10.};
-constexpr double etaBinWidth = 0.1;
+constexpr double etaBinWidth = 0.05;
 // residual histograms: range and bins, coarser for the pT and eta bins with fewer entries
 constexpr double resMax = 0.25;
 constexpr int nResBins = 500;
 constexpr int nResBinsPerBin = 100;
-
-// event, then the barcode: vertex primary, vertex secondary, particle, generation, sub particle
-using Key = std::tuple<unsigned, unsigned, unsigned, unsigned, unsigned, unsigned>;
-struct Truth {
-  float pt, eta;
-};
 
 /*
  * PDG code (compared as |pdg|) of a particle name or number, 0 for "" (all particles),
@@ -93,15 +88,8 @@ std::pair<double, double> coreSigma(TH1D* h) {
  * the labels joined by "_vs_" if empty.
  */
 void pt_resolution(const std::vector<TString> samples,
-                   const int firstSeed = 0,
-                   const int lastSeed = 0,
-                   std::vector<TString> labels = {},
                    const bool onSTBC = false,
                    const TString particle = "",
-                   const double ptMin_GeV = 0.5,
-                   const double etaMin = 1.5,
-                   const double etaMax = 2.5,
-                   const bool absEta = true,  // both sides; false for signed eta
                    TString tag = "",
                    const TString trackFile = "tracksummary_ambi-tracks-merged.root") {
   using namespace PtResolution;
@@ -182,7 +170,6 @@ void pt_resolution(const std::vector<TString> samples,
       nFilesUsed++;
 
       // reconstructible particles in the selection, by event and barcode
-      std::map<Key, Truth> reconstructible;
       unsigned eventId;
       std::vector<unsigned> *vtxPrim = nullptr, *vtxSec = nullptr, *part = nullptr,
                             *gen = nullptr, *subPart = nullptr;
