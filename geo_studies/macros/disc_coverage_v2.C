@@ -951,9 +951,16 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
            label.Data(), maxHits, maxHits * scale_kHz, nUnassigned, hFine->Integral());
 
     TCanvas* c = new TCanvas("c_hitsPerSensor_" + label, label + " hits per sensor", 600, 500);
-    hSensors->SetMinimum(20);    // kHz
-    hSensors->SetMaximum(2500);  // kHz
+    if (disc < 3) { // ML
+      hSensors->SetMinimum(200);   // kHz
+      hSensors->SetMaximum(5100);  // kHz
+    } else {
+      hSensors->SetMinimum(50);    // kHz
+      hSensors->SetMaximum(1500);  // kHz
+    }
+    hSensors->GetZaxis()->SetMoreLogLabels();
     hSensors->GetZaxis()->SetNoExponent();  // the "x10^3" would sit on the axis title
+    hSensors->GetZaxis()->SetTitleOffset(1.6);
     gPad->SetLeftMargin(0.15);  // y label cut off otherwise
     gPad->SetRightMargin(0.2);  // room for the z-axis palette, its labels and title
     hSensors->Draw("colz");
