@@ -29,7 +29,7 @@
  */
 
 namespace PtResForward {
-const std::vector<int> colors = {kBlack, kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1};
+const std::vector<int> colours = {kBlack, kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1};
 const std::vector<double> ptBins = {0.5, 0.75, 1., 1.5, 2., 3., 5., 10.};
 const std::vector<double> etaBins = {1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5};
 constexpr double resMax = 0.25;
@@ -103,7 +103,7 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
   if (pdgSelected > 0) tag += Form("_pdg%d", pdgSelected);
   const TString title = Form("0.5 < p_{T} < 10 GeV, 1.5 < |#eta| < 2.5, #geq %d hits%s", minHits,
                              pdgSelected > 0 ? Form(", |PDG| = %d", pdgSelected) : "");
-  const TString resTitle = "p_{T}^{MC} (1/p_{T}^{reco} - 1/p_{T}^{MC})";
+  const TString resTitle = "Inverse resolution";
 
   std::vector<TH1D*> hRes;
   std::vector<TGraphErrors*> gPt, gEta;
@@ -193,8 +193,8 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
     TLegend leg(0.55, 0.72, 0.88, 0.88);
     leg.SetBorderSize(0);
     for (unsigned s = 0; s < objs.size(); s++) {
-      objs[s]->SetLineColor(colors[s % colors.size()]);
-      objs[s]->SetMarkerColor(colors[s % colors.size()]);
+      objs[s]->SetLineColor(colours[s % colours.size()]);
+      objs[s]->SetMarkerColor(colours[s % colours.size()]);
       objs[s]->SetMarkerStyle(20);
       objs[s]->Draw(option);
       leg.AddEntry(objs[s], labels[s], "l");
