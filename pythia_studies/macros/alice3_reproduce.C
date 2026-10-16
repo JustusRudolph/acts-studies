@@ -73,7 +73,8 @@ void alice3_reproduce(const bool onSTBC=false,
   const TString actso2_output_base = Utils::outputPathBase(onSTBC);
   // Define particle types and pTs
   std::vector<TString> particles = {"electron", "piplus", "proton", "kaonplus"};
-  std::vector<TString> particle_labels = {"e^{-}", "#pi^{+}", "p^{+}", "K^{+}"};
+  // both charges: compared on |PDG|
+  std::vector<TString> particle_labels = {"e^{#pm}", "#pi^{#pm}", "p^{#pm}", "K^{#pm}"};
   std::vector<int> pdg_codes = {11, 211, 2212, 321};
   std::map<int, unsigned> pdg_to_index;
   for (unsigned i = 0; i < pdg_codes.size(); i++) {
@@ -82,7 +83,7 @@ void alice3_reproduce(const bool onSTBC=false,
   std::vector<Int_t> colours_per_particle = {kMagenta, kBlack, kRed, kBlue};
   if (include_muons) {
     particles.push_back("muon");
-    particle_labels.push_back("#mu^{-}");
+    particle_labels.push_back("#mu^{#pm}");
     pdg_codes.push_back(13);
     pdg_to_index[13] = pdg_codes.size() - 1;
     colours_per_particle.push_back(kGreen+3);
@@ -148,12 +149,13 @@ void alice3_reproduce(const bool onSTBC=false,
     for (unsigned i_ev = 0; i_ev < sim_tree->GetEntries(); i_ev++) {
       sim_tree->GetEntry(i_ev);
       for (size_t i_mcp = 0; i_mcp < eta->size(); i_mcp++) {
+        const int abs_pdg = std::abs(pdg->at(i_mcp));
         if (std::find(pdg_codes.begin(),
                       pdg_codes.end(),
-                      pdg->at(i_mcp)) == pdg_codes.end())
+                      abs_pdg) == pdg_codes.end())
           continue;
 
-        unsigned i_part = pdg_to_index[pdg->at(i_mcp)];
+        unsigned i_part = pdg_to_index[abs_pdg];
         if (Cuts::alice3_default_cut(nHits->at(i_mcp),  // allow all eta for eta plot
                                      generation->at(i_mcp))) {
           if (eta->at(i_mcp) < abs_eta_max) { // fill pt plots only for central eta
