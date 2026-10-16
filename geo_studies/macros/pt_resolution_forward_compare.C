@@ -110,16 +110,23 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
   for (unsigned s = 0; s < samples.size(); s++) {
     hRes.push_back(new TH1D(Form("hRes_%u", s), title + ";" + resTitle + ";Tracks", 500, -resMax, resMax));
     std::vector<TH1D*> hPt, hEta;
-    for (size_t b = 0; b + 1 < ptBins.size(); b++)
-      hPt.push_back(new TH1D(Form("hResPt_%u_%zu", s, b), "", 200, -resMax, resMax));
-    for (size_t b = 0; b + 1 < etaBins.size(); b++)
-      hEta.push_back(new TH1D(Form("hResEta_%u_%zu", s, b), "", 200, -resMax, resMax));
+    for (unsigned i_bin = 0; i_bin + 1 < ptBins.size(); i_bin++)
+      hPt.push_back(new TH1D(Form("hResPt_%u_%u", s, i_bin), "", 200, -resMax, resMax));
+    for (unsigned i_bin = 0; i_bin + 1 < etaBins.size(); i_bin++)
+      hEta.push_back(new TH1D(Form("hResEta_%u_%u", s, i_bin), "", 200, -resMax, resMax));
 
     std::vector<TString> dirs;
     for (int seed = firstSeed; seed <= lastSeed; seed++) dirs.push_back(Form("%s/seed_%d", samples[s].Data(), seed));
+    // With no seed directories (i.e. a solo run) just use the base directory to get data
     if (dirs.empty()) dirs.push_back(samples[s]);
 
-    for (const TString& dir : dirs) {
+    // progress every 10% of the directories, if there are more than 10
+    const size_t progressStep = dirs.size() > 10 ? (dirs.size() + 9) / 10 : 0;
+    for (size_t i_dir = 0; i_dir < dirs.size(); i_dir++) {
+      if (progressStep && i_dir % progressStep == 0)
+        printf("%s: %zu / %zu directories (%.0f%%)\n", labels[s].Data(), i_dir, dirs.size(),
+               100. * i_dir / dirs.size());
+      const TString& dir = dirs[i_dir];
       const TString path = Utils::outputPathBase(onSTBC) + dir + "/";
       std::unique_ptr<TFile> fParticles(TFile::Open(path + "particles_digitized_selected.root"));
       std::unique_ptr<TFile> fTracks(TFile::Open(path + trackFile));
