@@ -5,15 +5,19 @@
 
 #include <TFile.h>
 #include <TString.h>
+#include <TSystem.h>
 #include <TTree.h>
 
 #include "../Utils/BasicFunctions.h"
 
 /*
- * Adds, per track, particle_index to the track summary: the global index of the
+ * Writes, per track, particle_index for the track summary: the global index of the
  * track's majority particle in particleFile
  * This index is -1 if the particle is not in particleFile. Filled for every track.
- * Output: Simply adds to the input track file.
+ * Output: friend file <trackFile without .root>_particle_index.root next to the input,
+ * holding only the tree "trackindex" with the branch particle_index, one entry per
+ * tracksummary entry (dCache files cannot be updated in place). Read it with
+ * tracksummary->AddFriend("trackindex", <friend file>).
  */
 void add_particle_index_to_tracks(const TString pathToFilesFromOutput,
                                   const bool onSTBC = false,
@@ -22,17 +26,18 @@ void add_particle_index_to_tracks(const TString pathToFilesFromOutput,
   // event, vertex_primary, vertex_secondary, particle, generation, sub_particle
   using Key = std::tuple<unsigned, unsigned, unsigned, unsigned, unsigned, unsigned>;
   const TString dir = Utils::outputPathBase(onSTBC) + pathToFilesFromOutput + "/";
+  const TString outFile = dir + TString(trackFile).ReplaceAll(".root", "_particle_index.root");
+  if (!gSystem->AccessPathName(outFile)) {
+    std::cout << outFile << " exists already, nothing to do." << std::endl;
+    return;
+  }
 
   TFile* fParticles = TFile::Open(dir + particleFile);
-  TFile* fTracks = TFile::Open(dir + trackFile, "UPDATE");
+  TFile* fTracks = TFile::Open(dir + trackFile);
   TTree* tParticles = fParticles && !fParticles->IsZombie() ? fParticles->Get<TTree>("particles") : nullptr;
   TTree* tTracks = fTracks && !fTracks->IsZombie() ? fTracks->Get<TTree>("tracksummary") : nullptr;
   if (!tParticles || !tTracks) {
     std::cerr << "Cannot read particles or tracksummary in " << dir << std::endl;
-    return;
-  }
-  if (tTracks->GetBranch("particle_index")) {
-    std::cout << "particle_index already in " << dir + trackFile << ", nothing to do." << std::endl;
     return;
   }
 
@@ -57,6 +62,11 @@ void add_particle_index_to_tracks(const TString pathToFilesFromOutput,
   }
 
   // majority particle per track
+  tTracks->SetBranchStatus("*", false);
+  for (const char* name : {"event_nr", "majorityParticleId_vertex_primary", "majorityParticleId_vertex_secondary",
+                           "majorityParticleId_particle", "majorityParticleId_generation",
+                           "majorityParticleId_sub_particle"})
+    tTracks->SetBranchStatus(name, true);
   tTracks->SetBranchAddress("event_nr", &event);
   tTracks->SetBranchAddress("majorityParticleId_vertex_primary", &v1);
   tTracks->SetBranchAddress("majorityParticleId_vertex_secondary", &v2);
@@ -64,8 +74,14 @@ void add_particle_index_to_tracks(const TString pathToFilesFromOutput,
   tTracks->SetBranchAddress("majorityParticleId_generation", &g);
   tTracks->SetBranchAddress("majorityParticleId_sub_particle", &sp);
 
+  TFile* fOut = TFile::Open(outFile, "RECREATE");
+  if (!fOut || fOut->IsZombie()) {
+    std::cerr << "Cannot create " << outFile << std::endl;
+    return;
+  }
+  TTree* tOut = new TTree("trackindex", "Global index of the majority particle in " + particleFile);
   std::vector<int> particleIndex;
-  TBranch* bIndex = tTracks->Branch("particle_index", &particleIndex);
+  tOut->Branch("particle_index", &particleIndex);
 
   long nTracks = 0, nFound = 0;
   for (Long64_t i = 0; i < tTracks->GetEntries(); i++) {
@@ -79,12 +95,17 @@ void add_particle_index_to_tracks(const TString pathToFilesFromOutput,
       }
     }
     nTracks += p->size();
-    bIndex->Fill();
+    tOut->Fill();
   }
-  fTracks->cd();
-  tTracks->Write("", TObject::kOverwrite);
+  tOut->Write();
+  const bool failed = fOut->TestBit(TFile::kWriteError);
+  fOut->Close();
   fTracks->Close();
   fParticles->Close();
+  if (failed) {
+    std::cerr << "Error writing " << outFile << ", remove it and rerun." << std::endl;
+    return;
+  }
   std::cout << "Majority particle of " << nFound << " / " << nTracks << " tracks found among the "
-            << nParticles << " particles in " << particleFile << ". Added to " << dir + trackFile << std::endl;
+            << nParticles << " particles in " << particleFile << ". Saved: " << outFile << std::endl;
 }

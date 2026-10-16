@@ -21,8 +21,9 @@
  * pT resolution from the inverse-pT residual pT_MC * (1/pT_reco - 1/pT_MC) of matched
  * tracks (trackClassification == 1), compared between samples. The truth comes from the
  * track's majority particle in particles_digitized_selected.root, through particle_index
- * from add_particle_index_to_tracks.C; it has to pass the OT_discs_coverage acceptance
- * (0.5 < pT < 10 GeV, 1.5 < |eta| < 2.5) with at least minHits hits.
+ * (friend file from global/add_particle_index_to_tracks.C); it has to pass the
+ * OT_discs_coverage acceptance (0.5 < pT < 10 GeV, 1.5 < |eta| < 2.5) with at least
+ * minHits hits.
  * Resolution: sigma of a Gaussian fit over the full residual range (as in O2), per pT
  * and |eta| bin; the RMS is printed alongside to show the tails.
  */
@@ -122,8 +123,10 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
       const TString path = Utils::outputPathBase(onSTBC) + dir + "/";
       std::unique_ptr<TFile> fParticles(TFile::Open(path + "particles_digitized_selected.root"));
       std::unique_ptr<TFile> fTracks(TFile::Open(path + trackFile));
+      const TString indexFile = path + TString(trackFile).ReplaceAll(".root", "_particle_index.root");
       TTree* tp = fParticles && !fParticles->IsZombie() ? fParticles->Get<TTree>("particles") : nullptr;
       TTree* tt = fTracks && !fTracks->IsZombie() ? fTracks->Get<TTree>("tracksummary") : nullptr;
+      if (tt && !gSystem->AccessPathName(indexFile)) tt->AddFriend("trackindex", indexFile);
       if (!tp || !tt || !tt->GetBranch("particle_index")) {
         std::cerr << "Warning: Missing particles or indexed tracks in " << dir << ", skipping." << std::endl;
         continue;
