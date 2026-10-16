@@ -5,6 +5,7 @@
 #include <TH1.h>
 #include <TLegend.h>
 #include <TLine.h>
+#include <TProfile.h>
 #include <TROOT.h>
 #include <TStyle.h>
 #include <TSystem.h>
@@ -22,6 +23,8 @@
  * pT > ptCutForEta. Denominator: primaries in particles_matched.root (from
  * global/add_matching_to_particles.C) with at least minHits hits (7, as
  * alice3_reproduce.C). Numerator: those flagged matched.
+ * Also the number of hits of these particles (all four species, pT > ptCutForEta): its
+ * mean vs |eta| and its distribution.
  */
 
 namespace EffForward {
@@ -65,7 +68,12 @@ void eff_forward_compare(const std::vector<TString> samples,
 
   // [sample][species]
   std::vector<std::vector<TEfficiency*>> effPt(samples.size()), effEta(samples.size());
+  // [sample]
+  std::vector<TProfile*> hitsVsEta;
+  std::vector<TH1D*> hitsDist;
   for (unsigned s = 0; s < samples.size(); s++) {
+    hitsVsEta.push_back(new TProfile(Form("hitsVsEta_%u", s), "", 20, etaMin, etaMax));
+    hitsDist.push_back(new TH1D(Form("hitsDist_%u", s), "", 40, 0.5, 40.5));
     for (unsigned i_part = 0; i_part < names.size(); i_part++) {
       effPt[s].push_back(new TEfficiency(Form("effPt_%s_%u", names[i_part].Data(), s), "",
                                          nPtBins, ptBins.data()));
@@ -111,7 +119,11 @@ void eff_forward_compare(const std::vector<TString> samples,
           if (!acceptance.isAccepted(pt->at(k), eta->at(k), phi->at(k), std::abs(pdg->at(k)), nHits->at(k))) continue;
           const unsigned i_part = it - pdgCodes.begin();
           effPt[s][i_part]->Fill(matched->at(k), pt->at(k));
-          if (pt->at(k) > ptCutForEta) effEta[s][i_part]->Fill(matched->at(k), std::abs(eta->at(k)));
+          if (pt->at(k) > ptCutForEta) {
+            effEta[s][i_part]->Fill(matched->at(k), std::abs(eta->at(k)));
+            hitsVsEta[s]->Fill(std::abs(eta->at(k)), nHits->at(k));
+            hitsDist[s]->Fill(nHits->at(k));
+          }
         }
       }
     }
@@ -161,11 +173,43 @@ void eff_forward_compare(const std::vector<TString> samples,
   draw(effPt, "efficiency_vs_pT", "p_{T} (GeV/c)", 0.01, 10, true, Form("%.1f < |#eta| < %.1f", etaMin, etaMax));
   draw(effEta, "efficiency_vs_eta", "|#eta|", etaMin, etaMax, false, Form("p_{T} > %.2g GeV/c", ptCutForEta));
 
+  // ---- number of hits: mean vs |eta|, and distribution (unit area), samples overlaid
+  auto drawHits = [&](auto& hists, const TString& name, const TString& axes) {
+    TCanvas c("c_" + name, name, 800, 600);
+    gPad->SetGridy();
+    TLegend leg(0.65, 0.88 - 0.06 * samples.size(), 0.88, 0.88);
+    leg.SetBorderSize(0);
+    leg.SetFillStyle(0);
+    double yMax = 0;
+    for (auto* h : hists) yMax = std::max(yMax, h->GetMaximum() + h->GetBinError(h->GetMaximumBin()));
+    for (unsigned s = 0; s < samples.size(); s++) {
+      hists[s]->SetTitle(Form("e, #pi, p, K, %.1f < |#eta| < %.1f, p_{T} > %.2g GeV/c;", etaMin, etaMax, ptCutForEta) + axes);
+      hists[s]->SetLineColor(colors[s % colors.size()]);
+      hists[s]->SetMarkerColor(colors[s % colors.size()]);
+      hists[s]->SetMarkerStyle(20);
+      hists[s]->SetMarkerSize(0.8);
+      hists[s]->SetMinimum(0);
+      hists[s]->SetMaximum(1.2 * yMax);
+      hists[s]->Draw(s == 0 ? "E" : "E SAME");
+      leg.AddEntry(hists[s], labels[s], "lp");
+    }
+    leg.Draw();
+    c.SaveAs(figureDir + name + ".pdf");
+  };
+  for (TH1D* h : hitsDist)
+    if (h->Integral() > 0) h->Scale(1. / h->Integral());
+  drawHits(hitsVsEta, "nHits_vs_eta", "|#eta|;Mean number of hits");
+  drawHits(hitsDist, "nHits_distribution", "Number of hits;Fraction of particles");
+
   TFile out(base + "histos/geo/eff_forward_" + tag + ".root", "RECREATE");
   for (unsigned s = 0; s < samples.size(); s++)
     for (unsigned i_part = 0; i_part < names.size(); i_part++) {
       effPt[s][i_part]->Write();
       effEta[s][i_part]->Write();
     }
+  for (unsigned s = 0; s < samples.size(); s++) {
+    hitsVsEta[s]->Write();
+    hitsDist[s]->Write();
+  }
   printf("Figures in %s, efficiencies in %s\n", figureDir.Data(), out.GetName());
 }
