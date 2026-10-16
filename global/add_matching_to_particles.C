@@ -7,7 +7,7 @@
 #include <TTree.h>
 #include <TString.h>
 
-#include "Utils/BasicFunctions.h"
+#include "../Utils/BasicFunctions.h"
 
 void add_matching_to_particles(
   const TString pathToFilesFromOutput = "pythia_0pu_2500ev",
