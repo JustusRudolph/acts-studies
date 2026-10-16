@@ -158,7 +158,7 @@ void alice3_reproduce(const bool onSTBC=false,
         unsigned i_part = pdg_to_index[abs_pdg];
         if (Cuts::alice3_default_cut(nHits->at(i_mcp),  // allow all eta for eta plot
                                      generation->at(i_mcp))) {
-          if (eta->at(i_mcp) < abs_eta_max) { // fill pt plots only for central eta
+          if (std::abs(eta->at(i_mcp)) < abs_eta_max) { // fill pt plots only for central eta
             eff_hists_central[i_part]->Fill(matched->at(i_mcp), pt->at(i_mcp));
             eff_seeding_hists_central[i_part]->Fill(matched_Seed->at(i_mcp),
                                                     pt->at(i_mcp));

@@ -5,6 +5,7 @@
 #include <TH1.h>
 #include <TLegend.h>
 #include <TLine.h>
+#include <TPad.h>
 #include <TProfile.h>
 #include <TROOT.h>
 #include <TStyle.h>
@@ -73,7 +74,7 @@ void eff_forward_compare(const std::vector<TString> samples,
   std::vector<TH1D*> hitsDist;
   for (unsigned s = 0; s < samples.size(); s++) {
     hitsVsEta.push_back(new TProfile(Form("hitsVsEta_%u", s), "", 20, etaMin, etaMax));
-    hitsDist.push_back(new TH1D(Form("hitsDist_%u", s), "", 40, 0.5, 40.5));
+    hitsDist.push_back(new TH1D(Form("hitsDist_%u", s), "", 20, 0.5, 20.5));
     for (unsigned i_part = 0; i_part < names.size(); i_part++) {
       effPt[s].push_back(new TEfficiency(Form("effPt_%s_%u", names[i_part].Data(), s), "",
                                          nPtBins, ptBins.data()));
@@ -173,33 +174,97 @@ void eff_forward_compare(const std::vector<TString> samples,
   draw(effPt, "efficiency_vs_pT", "p_{T} (GeV/c)", 0.01, 10, true, Form("%.1f < |#eta| < %.1f", etaMin, etaMax));
   draw(effEta, "efficiency_vs_eta", "|#eta|", etaMin, etaMax, false, Form("p_{T} > %.2g GeV/c", ptCutForEta));
 
-  // ---- number of hits: mean vs |eta|, and distribution (unit area), samples overlaid
-  auto drawHits = [&](auto& hists, const TString& name, const TString& axes) {
-    TCanvas c("c_" + name, name, 800, 600);
-    gPad->SetGridy();
-    TLegend leg(0.65, 0.88 - 0.06 * samples.size(), 0.88, 0.88);
-    leg.SetBorderSize(0);
-    leg.SetFillStyle(0);
-    double yMax = 0;
-    for (auto* h : hists) yMax = std::max(yMax, h->GetMaximum() + h->GetBinError(h->GetMaximumBin()));
-    for (unsigned s = 0; s < samples.size(); s++) {
-      hists[s]->SetTitle(Form("e, #pi, p, K, %.1f < |#eta| < %.1f, p_{T} > %.2g GeV/c;", etaMin, etaMax, ptCutForEta) + axes);
-      hists[s]->SetLineColor(colors[s % colors.size()]);
-      hists[s]->SetMarkerColor(colors[s % colors.size()]);
-      hists[s]->SetMarkerStyle(20);
-      hists[s]->SetMarkerSize(0.8);
-      hists[s]->SetMinimum(0);
-      hists[s]->SetMaximum(1.2 * yMax);
-      hists[s]->Draw(s == 0 ? "E" : "E SAME");
-      leg.AddEntry(hists[s], labels[s], "lp");
-    }
-    leg.Draw();
-    c.SaveAs(figureDir + name + ".pdf");
+  // ---- number of hits: mean vs |eta| with the ratio to the first sample below, and the
+  // distribution (unit area, including overflow), samples overlaid
+  const TString hitsTitle = Form("e, #pi, p, K, %.1f < |#eta| < %.1f, p_{T} > %.2g GeV/c", etaMin, etaMax, ptCutForEta);
+  auto style = [&](TH1* h, unsigned s) {
+    h->SetLineColor(colors[s % colors.size()]);
+    h->SetMarkerColor(colors[s % colors.size()]);
+    h->SetMarkerStyle(20);
+    h->SetMarkerSize(0.8);
   };
-  for (TH1D* h : hitsDist)
-    if (h->Integral() > 0) h->Scale(1. / h->Integral());
-  drawHits(hitsVsEta, "nHits_vs_eta", "|#eta|;Mean number of hits");
-  drawHits(hitsDist, "nHits_distribution", "Number of hits;Fraction of particles");
+  auto legend = [&](double x1, double y2, auto& hists) {
+    TLegend* leg = new TLegend(x1, y2 - 0.06 * samples.size(), x1 + 0.25, y2);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    for (unsigned s = 0; s < samples.size(); s++) leg->AddEntry(hists[s], labels[s], "lp");
+    leg->Draw();
+    return leg;
+  };
+  {
+    TCanvas c("c_nHits_vs_eta", "nHits vs eta", 800, 800);
+    TPad top("top", "", 0, 0.3, 1, 1), bottom("bottom", "", 0, 0, 1, 0.3);
+    top.SetBottomMargin(0.02);
+    bottom.SetTopMargin(0.03);
+    bottom.SetBottomMargin(0.3);
+    top.SetGridy();
+    bottom.SetGridy();
+    top.Draw();
+    bottom.Draw();
+
+    top.cd();
+    for (unsigned s = 0; s < samples.size(); s++) {
+      hitsVsEta[s]->SetTitle(hitsTitle + ";;Mean number of hits");
+      style(hitsVsEta[s], s);
+      hitsVsEta[s]->SetMinimum(8);
+      hitsVsEta[s]->SetMaximum(15);
+      hitsVsEta[s]->GetXaxis()->SetLabelSize(0);
+      hitsVsEta[s]->Draw(s == 0 ? "E" : "E SAME");
+    }
+    TLegend* leg = legend(0.65, 0.88, hitsVsEta);
+
+    // ratio to the first sample, errors added as uncorrelated
+    bottom.cd();
+    TH1D* baseline = hitsVsEta[0]->ProjectionX("hitsVsEta_baseline");
+    std::vector<TH1D*> ratios;
+    double rMin = 1, rMax = 1;
+    for (unsigned s = 0; s < samples.size(); s++) {
+      ratios.push_back(hitsVsEta[s]->ProjectionX(Form("hitsVsEta_ratio_%u", s)));
+      ratios[s]->Divide(baseline);
+      for (int i_bin = 1; i_bin <= ratios[s]->GetNbinsX(); i_bin++) {
+        if (ratios[s]->GetBinContent(i_bin) == 0) continue;
+        rMin = std::min(rMin, ratios[s]->GetBinContent(i_bin) - ratios[s]->GetBinError(i_bin));
+        rMax = std::max(rMax, ratios[s]->GetBinContent(i_bin) + ratios[s]->GetBinError(i_bin));
+      }
+    }
+    const double rHalf = 1.1 * std::max(1 - rMin, rMax - 1) + 1e-3;
+    for (unsigned s = 0; s < samples.size(); s++) {
+      style(ratios[s], s);
+      ratios[s]->SetTitle(";|#eta|;Ratio to " + labels[0]);
+      ratios[s]->SetMinimum(1 - rHalf);
+      ratios[s]->SetMaximum(1 + rHalf);
+      ratios[s]->GetXaxis()->SetTitleSize(0.12);
+      ratios[s]->GetXaxis()->SetLabelSize(0.1);
+      ratios[s]->GetYaxis()->SetTitleSize(0.1);
+      ratios[s]->GetYaxis()->SetTitleOffset(0.45);
+      ratios[s]->GetYaxis()->SetLabelSize(0.09);
+      ratios[s]->GetYaxis()->SetNdivisions(505);
+      ratios[s]->Draw(s == 0 ? "E" : "E SAME");
+    }
+    c.SaveAs(figureDir + "nHits_vs_eta.pdf");
+    delete leg;
+  }
+  {
+    TCanvas c("c_nHits_distribution", "nHits distribution", 800, 600);
+    gPad->SetGridy();
+    double yMax = 0;
+    for (unsigned s = 0; s < samples.size(); s++) {
+      TH1D* h = hitsDist[s];
+      const double total = h->Integral(0, h->GetNbinsX() + 1);
+      if (total > 0) h->Scale(1. / total);
+      yMax = std::max(yMax, h->GetMaximum() + h->GetBinError(h->GetMaximumBin()));
+    }
+    for (unsigned s = 0; s < samples.size(); s++) {
+      hitsDist[s]->SetTitle(hitsTitle + ";Number of hits;Fraction of particles");
+      style(hitsDist[s], s);
+      hitsDist[s]->SetMinimum(0);
+      hitsDist[s]->SetMaximum(1.2 * yMax);
+      hitsDist[s]->Draw(s == 0 ? "E" : "E SAME");
+    }
+    TLegend* leg = legend(0.15, 0.88, hitsDist);
+    c.SaveAs(figureDir + "nHits_distribution.pdf");
+    delete leg;
+  }
 
   TFile out(base + "histos/geo/eff_forward_" + tag + ".root", "RECREATE");
   for (unsigned s = 0; s < samples.size(); s++)
