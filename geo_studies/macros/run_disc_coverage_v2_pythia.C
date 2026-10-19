@@ -5,7 +5,7 @@ void run_disc_coverage_v2_pythia(TString pathToFilesFromOutput = "pythia_0pu_250
                                  unsigned lo_idx=0,
                                  unsigned hi_idx=0,
                                  bool onSTBC=false,
-                                 float collision_rate=24000.,
+                                 float collision_rate=24000.,  // kHz: 24000 pp, 300 PbPb
                                  unsigned nEvents=1000000,
                                  bool runWithMeasurements=false,
                                  std::tuple<float, float> tolML={0, 2.5},
@@ -14,11 +14,12 @@ void run_disc_coverage_v2_pythia(TString pathToFilesFromOutput = "pythia_0pu_250
                                  bool gen3Geometry=true,
                                  TString tag="",  // names the histogram file
                                  Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
-                                 TString geometryName="geometry_2026_10_02_segmented_realistic") {
+                                 TString geometryName="geometry_2026_10_02_segmented_realistic",
+                                 bool isPbPb=false) {
   std::vector<TString> input_dirs;
   for (unsigned i = lo_idx; i <= hi_idx; i++) {
     input_dirs.push_back(Form("%s/seed_%u", pathToFilesFromOutput.Data(), i));
   }
   disc_coverage_v2(input_dirs, onSTBC, collision_rate, nEvents, runWithMeasurements,
-                   tolML, tolOT, debugLevel, gen3Geometry, tag, mode, geometryName);
+                   tolML, tolOT, debugLevel, gen3Geometry, tag, mode, geometryName, isPbPb);
 }

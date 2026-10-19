@@ -1378,13 +1378,14 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
 void disc_coverage_v2(
   const std::vector<TString> pathBases = {"geo_staves_pi_1GeV_eta14-20"},
   const bool onSTBC=false,
-  const float collision_rate=24000.,  // in kHz (change for PbPb)
+  const float collision_rate=24000.,  // in kHz: 24000 for pp, 300 for PbPb
   const unsigned nEvents=1000000,
   const bool runWithMeasurements=false,
   const std::tuple<float, float> toleranceML_mm = {0, 2.5},
   const std::tuple<float, float> toleranceOT_mm = {5, 3},
   const unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
   const bool gen3Geometry=true,  // false for samples made with the old (pre Gen3) geometry
+  const bool isPbPb=false,  // appends "_PbPb" to the figure directory
   TString tag="",  // names the histogram file and figure directory, derived from the sample if empty (so not const)
   const Utils::AnalysisBase::Mode mode=Utils::AnalysisBase::kAuto,
   // directory in ACTSO2/geometries used for stave placements
@@ -1394,9 +1395,9 @@ void disc_coverage_v2(
   const TString alice_projects_base   = Utils::aliceProjectsBase(onSTBC);
   const TString geo_studies_base      = alice_projects_base + "acts-studies/geo_studies/";
 
-  // figures go into figures/geo/<tag or sample>/
+  // figures go into figures/geo/<tag or sample>[_PbPb]/
   const TString figure_dir = geo_studies_base + "figures/geo/"
-                           + Utils::figureDirName(tag, pathBases) + "/";
+                           + Utils::figureDirName(tag, pathBases, isPbPb) + "/";
 
   if (tag.IsNull()) {
     // name the histogram file after the sample the sub directories live in

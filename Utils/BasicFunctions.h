@@ -22,12 +22,16 @@ namespace Utils {
                   : "/home/justus/projects/alice/";
   }
   // directory the figures of a run go into: the tag if given, else the sample the
-  // input paths belong to (e.g. "pythia_0pu_2500ev" for "pythia_0pu_2500ev/seed_3")
-  inline TString figureDirName(const TString& tag, const std::vector<TString>& pathBases) {
-    if (!tag.IsNull()) return tag;
-    TString sample = pathBases.empty() ? TString("unknown") : pathBases.front();
-    if (sample.Contains("/")) sample = gSystem->DirName(sample);
-    sample.ReplaceAll("/", "_");
-    return sample;
+  // input paths belong to (e.g. "pythia_0pu_2500ev" for "pythia_0pu_2500ev/seed_3"),
+  // with "_PbPb" appended for PbPb samples
+  inline TString figureDirName(const TString& tag, const std::vector<TString>& pathBases,
+                               bool isPbPb = false) {
+    TString name = tag;
+    if (name.IsNull()) {
+      name = pathBases.empty() ? TString("unknown") : pathBases.front();
+      if (name.Contains("/")) name = gSystem->DirName(name);
+      name.ReplaceAll("/", "_");
+    }
+    return isPbPb ? name + "_PbPb" : name;
   }
 }  // namespace Utils

@@ -114,12 +114,13 @@ void save(TCanvas* c, const TString& path) {
  * histFiles: histogram files of disc_coverage_v2, relative to histos/geo/ unless the
  * path is absolute. labels: legend entries, the file names without "disc_coverage_" if
  * empty. outTag names the figure directory so comparisons don't overwrite each other, the
- * labels joined by "_vs_" if empty.
+ * labels joined by "_vs_" if empty, with "_PbPb" appended if isPbPb.
  */
 void compare_disc_coverage(const std::vector<TString> histFiles,
                            std::vector<TString> labels = {},
                            const TString outTag = "",
-                           const bool onSTBC = false) {
+                           const bool onSTBC = false,
+                           const bool isPbPb = false) {
   using namespace CompareDiscCoverage;
   gROOT->SetBatch(true);
   gStyle->SetOptStat(0);
@@ -144,6 +145,7 @@ void compare_disc_coverage(const std::vector<TString> histFiles,
       figureDirName += (figureDirName.IsNull() ? "" : "_vs_") + label;
     }
   }
+  if (isPbPb) figureDirName += "_PbPb";
   const TString compareDir = geo_studies_base + "figures/geo/" + figureDirName + "/compare/";
   const TString occupancyDir = compareDir + "occupancy_layer/";
   const TString efficiencyDir = compareDir + "efficiency_layer/";
