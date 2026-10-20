@@ -123,8 +123,10 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
                std::tuple<float, float> toleranceML_mm={0, 2.5}, // inner/outer
                std::tuple<float, float> toleranceOT_mm={5, 3}, // inner/outer
                unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
-               bool gen3Geometry=true)  // volume/layer ids of the Gen3 geometry, false for the old one
-      : Utils::MultiFileAnalysis(histFilePath, inputBase, subDirs),
+               bool gen3Geometry=true,
+               bool isPbPb=false)  // volume/layer ids of the Gen3 geometry, false for the old one
+      : Utils::MultiFileAnalysis(histFilePath + (isPbPb ? "_PbPb" : ""),
+                                 inputBase, subDirs),  // append PbPb to path for separate hists
         fCollisionRate(collision_rate), fNEvents(nEvents),
         fRunWithMeasurements(runWithMeasurements), fDebugLevel(debugLevel),
         fGen3Geometry(gen3Geometry) {
@@ -1416,9 +1418,11 @@ void disc_coverage_v2(
   // The map is needed if the data is filled: always for kRefill/kFillOnly, and for
   // kAuto if there is no histogram file yet. It is read back if it exists, unless the
   // data is run over again anyway.
-  const bool rerun = mode == Utils::AnalysisBase::kRefill || mode == Utils::AnalysisBase::kFillOnly;
+  const bool rerun = mode == Utils::AnalysisBase::kRefill ||
+                     mode == Utils::AnalysisBase::kFillOnly;
   const bool willFill = rerun ||
-    (mode == Utils::AnalysisBase::kAuto && gSystem->AccessPathName(analysis.histFilePath()));
+    (mode == Utils::AnalysisBase::kAuto &&
+     gSystem->AccessPathName(analysis.histFilePath()));  // fill if hist doesn't exist
   // When only plotting it is just needed for the hits per sensor, which are left out
   // without it.
   const bool haveMap = analysis.loadActiveAreaMap(
