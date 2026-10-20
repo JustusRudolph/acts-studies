@@ -1413,7 +1413,8 @@ void disc_coverage_v2(
   DiscCoverage analysis(geo_studies_base + "histos/geo/disc_coverage_" + tag + ".root",
                         actso2_output_base, pathBases,
                         collision_rate, nEvents, runWithMeasurements,
-                        toleranceML_mm, toleranceOT_mm, debugLevel, gen3Geometry);
+                        toleranceML_mm, toleranceOT_mm, debugLevel,
+                        gen3Geometry, isPbPb);
   analysis.setOutputDirs(figure_dir + "occupancy_layer/", figure_dir + "efficiency_layer/");
   // The map is needed if the data is filled: always for kRefill/kFillOnly, and for
   // kAuto if there is no histogram file yet. It is read back if it exists, unless the
