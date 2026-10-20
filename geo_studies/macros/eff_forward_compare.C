@@ -174,7 +174,7 @@ void eff_forward_compare(const std::vector<TString> samples,
   draw(effPt, "efficiency_vs_pT", "p_{T} (GeV/c)", 0.01, 10, true, Form("%.1f < |#eta| < %.1f", etaMin, etaMax));
   draw(effEta, "efficiency_vs_eta", "|#eta|", etaMin, etaMax, false, Form("p_{T} > %.2g GeV/c", ptCutForEta));
 
-  // ---- number of hits: mean vs |eta| with the ratio to the first sample below, and the
+  // ---- number of hits: mean vs |eta| with the difference to the first sample below, and the
   // distribution (unit area, including overflow), samples overlaid
   const TString hitsTitle = Form("e, #pi, p, K, %.1f < |#eta| < %.1f, p_{T} > %.2g GeV/c", etaMin, etaMax, ptCutForEta);
   auto style = [&](TH1* h, unsigned s) {
@@ -213,34 +213,46 @@ void eff_forward_compare(const std::vector<TString> samples,
     }
     TLegend* leg = legend(0.65, 0.88, hitsVsEta);
 
-    // ratio to the first sample, errors added as uncorrelated
+    // difference to the first sample, errors added as uncorrelated; bins empty in either
+    // sample are left empty
     bottom.cd();
     TH1D* baseline = hitsVsEta[0]->ProjectionX("hitsVsEta_baseline");
-    std::vector<TH1D*> ratios;
-    double rMin = 1, rMax = 1;
+    std::vector<TH1D*> diffs;
+    double dMax = 0;
     for (unsigned s = 0; s < samples.size(); s++) {
-      ratios.push_back(hitsVsEta[s]->ProjectionX(Form("hitsVsEta_ratio_%u", s)));
-      ratios[s]->Divide(baseline);
-      for (int i_bin = 1; i_bin <= ratios[s]->GetNbinsX(); i_bin++) {
-        if (ratios[s]->GetBinContent(i_bin) == 0) continue;
-        rMin = std::min(rMin, ratios[s]->GetBinContent(i_bin) - ratios[s]->GetBinError(i_bin));
-        rMax = std::max(rMax, ratios[s]->GetBinContent(i_bin) + ratios[s]->GetBinError(i_bin));
+      diffs.push_back(hitsVsEta[s]->ProjectionX(Form("hitsVsEta_diff_%u", s)));
+      for (int i_bin = 1; i_bin <= diffs[s]->GetNbinsX(); i_bin++) {
+        if (hitsVsEta[s]->GetBinEntries(i_bin) == 0 || hitsVsEta[0]->GetBinEntries(i_bin) == 0) {
+          diffs[s]->SetBinContent(i_bin, 0);
+          diffs[s]->SetBinError(i_bin, 0);
+          continue;
+        }
+        const double diff = diffs[s]->GetBinContent(i_bin) - baseline->GetBinContent(i_bin);
+        const double err = s == 0 ? 0 : std::hypot(diffs[s]->GetBinError(i_bin), baseline->GetBinError(i_bin));
+        diffs[s]->SetBinContent(i_bin, diff);
+        diffs[s]->SetBinError(i_bin, err);
+        dMax = std::max(dMax, std::abs(diff) + err);
       }
     }
-    const double rHalf = 1.1 * std::max(1 - rMin, rMax - 1) + 1e-3;
+    const double dHalf = 1.1 * dMax + 1e-3;
     for (unsigned s = 0; s < samples.size(); s++) {
-      style(ratios[s], s);
-      ratios[s]->SetTitle(";|#eta|;Ratio to " + labels[0]);
-      ratios[s]->SetMinimum(1 - rHalf);
-      ratios[s]->SetMaximum(1 + rHalf);
-      ratios[s]->GetXaxis()->SetTitleSize(0.12);
-      ratios[s]->GetXaxis()->SetLabelSize(0.1);
-      ratios[s]->GetYaxis()->SetTitleSize(0.1);
-      ratios[s]->GetYaxis()->SetTitleOffset(0.45);
-      ratios[s]->GetYaxis()->SetLabelSize(0.09);
-      ratios[s]->GetYaxis()->SetNdivisions(505);
-      ratios[s]->Draw(s == 0 ? "E" : "E SAME");
+      style(diffs[s], s);
+      diffs[s]->SetTitle(";|#eta|;Diff. to " + labels[0]);
+      diffs[s]->SetMinimum(-dHalf);
+      diffs[s]->SetMaximum(dHalf);
+      diffs[s]->GetXaxis()->SetTitleSize(0.12);
+      diffs[s]->GetXaxis()->SetLabelSize(0.1);
+      diffs[s]->GetYaxis()->SetTitleSize(0.1);
+      diffs[s]->GetYaxis()->SetTitleOffset(0.45);
+      diffs[s]->GetYaxis()->SetLabelSize(0.09);
+      diffs[s]->GetYaxis()->SetNdivisions(505);
+      diffs[s]->Draw(s == 0 ? "E" : "E SAME");
     }
+    // the baseline itself is zero everywhere, drawn as a line in its colour
+    TLine zero(diffs[0]->GetXaxis()->GetXmin(), 0, diffs[0]->GetXaxis()->GetXmax(), 0);
+    zero.SetLineColor(colors[0]);
+    zero.SetLineWidth(2);
+    zero.Draw();
     c.SaveAs(figureDir + "nHits_vs_eta.pdf");
     delete leg;
   }
