@@ -67,6 +67,7 @@ void eff_forward_compare(const std::vector<TString> samples,
     tag.ReplaceAll(" ", "_");
   }
   if (isPbPb) tag += "_PbPb";
+  tag += Form("_minHits%d", minHits);
 
   // log pT bins from 10 MeV to 10 GeV, as in alice3_reproduce.C
   const int nPtBins = 20;

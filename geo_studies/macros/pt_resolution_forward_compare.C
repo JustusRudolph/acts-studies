@@ -107,6 +107,8 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
   }
   if (pdgSelected > 0) tag += Form("_pdg%d", pdgSelected);
   if (isPbPb) tag += "_PbPb";
+  tag += Form("_minHits%d", minHits);
+
   std::vector<TString> titles;
   for (const TString& org : origins)
     titles.push_back(org + Form(", 0.5 < p_{T} < 10 GeV, 1.5 < |#eta| < 2.5, #geq %d hits%s", minHits,
