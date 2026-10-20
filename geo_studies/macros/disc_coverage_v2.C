@@ -123,9 +123,8 @@ class DiscCoverage : public Utils::MultiFileAnalysis {
                std::tuple<float, float> toleranceML_mm={0, 2.5}, // inner/outer
                std::tuple<float, float> toleranceOT_mm={5, 3}, // inner/outer
                unsigned debugLevel=0,  // 0 nothing, 1 some, 2 many, 3 all debug prints
-               bool gen3Geometry=true,
-               bool isPbPb=false)  // volume/layer ids of the Gen3 geometry, false for the old one
-      : Utils::MultiFileAnalysis(histFilePath + (isPbPb ? "_PbPb" : ""),
+               bool gen3Geometry=true)
+      : Utils::MultiFileAnalysis(histFilePath,
                                  inputBase, subDirs),  // append PbPb to path for separate hists
         fCollisionRate(collision_rate), fNEvents(nEvents),
         fRunWithMeasurements(runWithMeasurements), fDebugLevel(debugLevel),
@@ -1408,13 +1407,15 @@ void disc_coverage_v2(
     tag = Form("%s_%ufiles_%uev%s", sample.Data(), (unsigned) pathBases.size(), nEvents,
                runWithMeasurements ? "_meas" : "");
     tag.ReplaceAll("/", "_");
+    // append "_PbPb" to the tag if running with PbPb data
+    if (isPbPb) tag += "_PbPb";
   }
 
   DiscCoverage analysis(geo_studies_base + "histos/geo/disc_coverage_" + tag + ".root",
                         actso2_output_base, pathBases,
                         collision_rate, nEvents, runWithMeasurements,
                         toleranceML_mm, toleranceOT_mm, debugLevel,
-                        gen3Geometry, isPbPb);
+                        gen3Geometry);
   analysis.setOutputDirs(figure_dir + "occupancy_layer/", figure_dir + "efficiency_layer/");
   // The map is needed if the data is filled: always for kRefill/kFillOnly, and for
   // kAuto if there is no histogram file yet. It is read back if it exists, unless the
