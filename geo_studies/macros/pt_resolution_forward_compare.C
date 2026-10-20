@@ -26,6 +26,8 @@
  * minHits hits.
  * Resolution: sigma of a Gaussian fit over the full residual range (as in O2), per pT
  * and |eta| bin; the RMS is printed alongside to show the tails.
+ * Every figure is made separately for primaries (generation 0) and secondaries
+ * (generation > 0) of the majority particle.
  */
 
 namespace PtResForward {
@@ -33,6 +35,8 @@ const std::vector<int> colours = {kBlack, kRed + 1, kBlue + 1, kGreen + 2, kMage
 const std::vector<double> ptBins = {0.5, 0.75, 1., 1.5, 2., 3., 5., 10.};
 const std::vector<double> etaBins = {1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5};
 constexpr double resMax = 0.25;
+// indexed by isSecondary: generation 0, generation > 0
+const std::vector<TString> origins = {"primaries", "secondaries"};
 
 int pdgOf(TString particle) {
   particle.ToLower();
@@ -52,11 +56,11 @@ std::pair<double, double> gausSigma(TH1D* h) {
 
 TGraphErrors* resolutionVs(const std::vector<TH1D*>& hists, const std::vector<double>& bins) {
   auto* g = new TGraphErrors();
-  for (size_t b = 0; b < hists.size(); b++) {
-    if (hists[b]->GetEntries() < 5) continue;
-    const auto [sigma, err] = gausSigma(hists[b]);
-    g->AddPoint(0.5 * (bins[b] + bins[b + 1]), sigma);
-    g->SetPointError(g->GetN() - 1, 0.5 * (bins[b + 1] - bins[b]), err);
+  for (size_t i_bin = 0; i_bin < hists.size(); i_bin++) {
+    if (hists[i_bin]->GetEntries() < 5) continue;
+    const auto [sigma, err] = gausSigma(hists[i_bin]);
+    g->AddPoint(0.5 * (bins[i_bin] + bins[i_bin + 1]), sigma);
+    g->SetPointError(g->GetN() - 1, 0.5 * (bins[i_bin + 1] - bins[i_bin]), err);
   }
   return g;
 }
@@ -101,30 +105,37 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
     tag.ReplaceAll(" ", "_");
   }
   if (pdgSelected > 0) tag += Form("_pdg%d", pdgSelected);
-  const TString title = Form("0.5 < p_{T} < 10 GeV, 1.5 < |#eta| < 2.5, #geq %d hits%s", minHits,
-                             pdgSelected > 0 ? Form(", |PDG| = %d", pdgSelected) : "");
+  std::vector<TString> titles;
+  for (const TString& org : origins)
+    titles.push_back(org + Form(", 0.5 < p_{T} < 10 GeV, 1.5 < |#eta| < 2.5, #geq %d hits%s", minHits,
+                                pdgSelected > 0 ? Form(", |PDG| = %d", pdgSelected) : ""));
   const TString resTitle = "Inverse resolution";
 
-  std::vector<TH1D*> hRes;
-  std::vector<TGraphErrors*> gPt, gEta;
-  for (unsigned s = 0; s < samples.size(); s++) {
-    hRes.push_back(new TH1D(Form("hRes_%u", s), title + ";" + resTitle + ";Tracks", 500, -resMax, resMax));
-    std::vector<TH1D*> hPt, hEta;
-    for (unsigned i_bin = 0; i_bin + 1 < ptBins.size(); i_bin++)
-      hPt.push_back(new TH1D(Form("hResPt_%u_%u", s, i_bin), "", 200, -resMax, resMax));
-    for (unsigned i_bin = 0; i_bin + 1 < etaBins.size(); i_bin++)
-      hEta.push_back(new TH1D(Form("hResEta_%u_%u", s, i_bin), "", 200, -resMax, resMax));
+  // [isSecondary][sample]
+  std::vector<std::vector<TH1D*>> hRes(origins.size());
+  std::vector<std::vector<TGraphErrors*>> gPt(origins.size()), gEta(origins.size());
+  for (unsigned i_sample = 0; i_sample < samples.size(); i_sample++) {
+    // [isSecondary][bin]
+    std::vector<std::vector<TH1D*>> hPt(origins.size()), hEta(origins.size());
+    for (const bool isSecondary : {false, true}) {
+      const char* org = origins[isSecondary].Data();
+      hRes[isSecondary].push_back(new TH1D(Form("hRes_%s_%u", org, i_sample), titles[isSecondary] + ";" + resTitle + ";Tracks", 500, -resMax, resMax));
+      for (unsigned i_bin = 0; i_bin + 1 < ptBins.size(); i_bin++)
+        hPt[isSecondary].push_back(new TH1D(Form("hResPt_%s_%u_%u", org, i_sample, i_bin), "", 200, -resMax, resMax));
+      for (unsigned i_bin = 0; i_bin + 1 < etaBins.size(); i_bin++)
+        hEta[isSecondary].push_back(new TH1D(Form("hResEta_%s_%u_%u", org, i_sample, i_bin), "", 200, -resMax, resMax));
+    }
 
     std::vector<TString> dirs;
-    for (int seed = firstSeed; seed <= lastSeed; seed++) dirs.push_back(Form("%s/seed_%d", samples[s].Data(), seed));
+    for (int seed = firstSeed; seed <= lastSeed; seed++) dirs.push_back(Form("%s/seed_%d", samples[i_sample].Data(), seed));
     // With no seed directories (i.e. a solo run) just use the base directory to get data
-    if (dirs.empty()) dirs.push_back(samples[s]);
+    if (dirs.empty()) dirs.push_back(samples[i_sample]);
 
     // progress every 10% of the directories, if there are more than 10
     const size_t progressStep = dirs.size() > 10 ? (dirs.size() + 9) / 10 : 0;
     for (size_t i_dir = 0; i_dir < dirs.size(); i_dir++) {
       if (progressStep && i_dir % progressStep == 0)
-        printf("%s: %zu / %zu directories (%.0f%%)\n", labels[s].Data(), i_dir, dirs.size(),
+        printf("%s: %zu / %zu directories (%.0f%%)\n", labels[i_sample].Data(), i_dir, dirs.size(),
                100. * i_dir / dirs.size());
       const TString& dir = dirs[i_dir];
       const TString path = Utils::outputPathBase(onSTBC) + dir + "/";
@@ -142,20 +153,24 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
       // particles, concatenated over events as particle_index counts them
       std::vector<float> pt, eta, phi;
       std::vector<int> pdg, nHits;
+      std::vector<unsigned> generation;
       std::vector<float> *vPt = nullptr, *vEta = nullptr, *vPhi = nullptr;
       std::vector<int> *vPdg = nullptr, *vHits = nullptr;
+      std::vector<unsigned>* vGen = nullptr;
       tp->SetBranchAddress("pt", &vPt);
       tp->SetBranchAddress("eta", &vEta);
       tp->SetBranchAddress("phi", &vPhi);
       tp->SetBranchAddress("particle_type", &vPdg);
       tp->SetBranchAddress("number_of_hits", &vHits);
-      for (Long64_t i = 0; i < tp->GetEntries(); i++) {
-        tp->GetEntry(i);
+      tp->SetBranchAddress("generation", &vGen);
+      for (Long64_t i_event = 0; i_event < tp->GetEntries(); i_event++) {
+        tp->GetEntry(i_event);
         pt.insert(pt.end(), vPt->begin(), vPt->end());
         eta.insert(eta.end(), vEta->begin(), vEta->end());
         phi.insert(phi.end(), vPhi->begin(), vPhi->end());
         pdg.insert(pdg.end(), vPdg->begin(), vPdg->end());
         nHits.insert(nHits.end(), vHits->begin(), vHits->end());
+        generation.insert(generation.end(), vGen->begin(), vGen->end());
       }
 
       std::vector<int> *index = nullptr, *cls = nullptr;
@@ -166,24 +181,27 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
       tt->SetBranchAddress("hasFittedParams", &hasFit);
       tt->SetBranchAddress("eTHETA_fit", &theta);
       tt->SetBranchAddress("eQOP_fit", &qop);
-      for (Long64_t i = 0; i < tt->GetEntries(); i++) {
-        tt->GetEntry(i);
-        for (size_t k = 0; k < index->size(); k++) {
-          const int j = index->at(k);
-          if (j < 0 || cls->at(k) != 1 || !hasFit->at(k)) continue;  // 1: matched
+      for (Long64_t i_event = 0; i_event < tt->GetEntries(); i_event++) {
+        tt->GetEntry(i_event);
+        for (size_t i_track = 0; i_track < index->size(); i_track++) {
+          const int j = index->at(i_track);
+          if (j < 0 || cls->at(i_track) != 1 || !hasFit->at(i_track)) continue;  // 1: matched
           if (!acceptance.isAccepted(pt[j], eta[j], phi[j], std::abs(pdg[j]), nHits[j])) continue;
-          const double res = pt[j] * (std::abs(qop->at(k)) / std::sin(theta->at(k)) - 1. / pt[j]);
-          hRes.back()->Fill(res);
-          if (int b = binOf(ptBins, pt[j]); b >= 0) hPt[b]->Fill(res);
-          if (int b = binOf(etaBins, std::abs(eta[j])); b >= 0) hEta[b]->Fill(res);
+          const double res = pt[j] * (std::abs(qop->at(i_track)) / std::sin(theta->at(i_track)) - 1. / pt[j]);
+          const bool isSecondary = generation[j] > 0;
+          hRes[isSecondary][i_sample]->Fill(res);
+          if (int b = binOf(ptBins, pt[j]); b >= 0) hPt[isSecondary][b]->Fill(res);
+          if (int b = binOf(etaBins, std::abs(eta[j])); b >= 0) hEta[isSecondary][b]->Fill(res);
         }
       }
     }
-    gPt.push_back(resolutionVs(hPt, ptBins));
-    gEta.push_back(resolutionVs(hEta, etaBins));
-    const auto [sigma, err] = gausSigma(hRes.back());
-    printf("%s: %.0f tracks, sigma = %.4f +- %.4f (Gaussian), RMS %.4f\n", labels[s].Data(),
-           hRes.back()->GetEntries(), sigma, err, hRes.back()->GetRMS());
+    for (const bool isSecondary : {false, true}) {
+      gPt[isSecondary].push_back(resolutionVs(hPt[isSecondary], ptBins));
+      gEta[isSecondary].push_back(resolutionVs(hEta[isSecondary], etaBins));
+      const auto [sigma, err] = gausSigma(hRes[isSecondary][i_sample]);
+      printf("%s, %s: %.0f tracks, sigma = %.4f +- %.4f (Gaussian), RMS %.4f\n", labels[i_sample].Data(),
+             origins[isSecondary].Data(), hRes[isSecondary][i_sample]->GetEntries(), sigma, err, hRes[isSecondary][i_sample]->GetRMS());
+    }
   }
 
   // ---- plots: residuals (unit area), resolution vs pT and vs |eta|
@@ -191,37 +209,42 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
   const TString figureDir = base + "figures/geo/" + tag + "/pt_resolution/";
   gSystem->mkdir(figureDir, true);
   gSystem->mkdir(base + "histos/geo", true);
-  auto draw = [&](auto& objs, const TString& name, const TString& axes, double xMin, double xMax,
-                  double yMin, double yMax, const char* option) {
+  auto draw = [&](auto& objs, const TString& name, const TString& title, const TString& axes, double xMin,
+                  double xMax, double yMin, double yMax, const char* option) {
     TCanvas c("c_" + name, name, 800, 600);
     gPad->SetLeftMargin(0.13);
     gPad->SetLogy(yMin > 0);
     gPad->DrawFrame(xMin, yMin, xMax, yMax)->SetTitle(title + ";" + axes);
     TLegend leg(0.55, 0.72, 0.88, 0.88);
     leg.SetBorderSize(0);
-    for (unsigned s = 0; s < objs.size(); s++) {
-      objs[s]->SetLineColor(colours[s % colours.size()]);
-      objs[s]->SetMarkerColor(colours[s % colours.size()]);
-      objs[s]->SetMarkerStyle(20);
-      objs[s]->Draw(option);
-      leg.AddEntry(objs[s], labels[s], "l");
+    for (unsigned i_sample = 0; i_sample < objs.size(); i_sample++) {
+      objs[i_sample]->SetLineColor(colours[i_sample % colours.size()]);
+      objs[i_sample]->SetMarkerColor(colours[i_sample % colours.size()]);
+      objs[i_sample]->SetMarkerStyle(20);
+      objs[i_sample]->Draw(option);
+      leg.AddEntry(objs[i_sample], labels[i_sample], "l");
     }
     leg.Draw();
     c.SaveAs(figureDir + name + ".pdf");
   };
-  for (TH1D* h : hRes)
-    if (h->Integral() > 0) h->Scale(1. / h->Integral());
-  draw(hRes, "pt_residuals", resTitle + ";Fraction of tracks", -resMax, resMax, 1e-5, 1, "HIST SAME");
-  draw(gPt, "pt_resolution_vs_pt", "p_{T}^{MC} (GeV);#sigma(p_{T}) / p_{T}", ptBins.front(),
-       ptBins.back(), 0, 0.1, "P SAME");
-  draw(gEta, "pt_resolution_vs_eta", "|#eta^{MC}|;#sigma(p_{T}) / p_{T}", etaBins.front(),
-       etaBins.back(), 0, 0.1, "P SAME");
+  for (const bool isSecondary : {false, true}) {
+    const TString& org = origins[isSecondary];
+    for (TH1D* h : hRes[isSecondary])
+      if (h->Integral() > 0) h->Scale(1. / h->Integral());
+    draw(hRes[isSecondary], "pt_residuals_" + org, titles[isSecondary], resTitle + ";Fraction of tracks", -resMax, resMax, 1e-5, 1,
+         "HIST SAME");
+    draw(gPt[isSecondary], "pt_resolution_vs_pt_" + org, titles[isSecondary], "p_{T}^{MC} (GeV);#sigma(p_{T}) / p_{T}",
+         ptBins.front(), ptBins.back(), 0, 0.1, "P SAME");
+    draw(gEta[isSecondary], "pt_resolution_vs_eta_" + org, titles[isSecondary], "|#eta^{MC}|;#sigma(p_{T}) / p_{T}",
+         etaBins.front(), etaBins.back(), 0, 0.1, "P SAME");
+  }
 
   TFile out(base + "histos/geo/pt_resolution_" + tag + ".root", "RECREATE");
-  for (unsigned s = 0; s < samples.size(); s++) {
-    hRes[s]->Write();
-    gPt[s]->Write(Form("gResVsPt_%u", s));
-    gEta[s]->Write(Form("gResVsEta_%u", s));
-  }
+  for (const bool isSecondary : {false, true})
+    for (unsigned i_sample = 0; i_sample < samples.size(); i_sample++) {
+      hRes[isSecondary][i_sample]->Write();
+      gPt[isSecondary][i_sample]->Write(Form("gResVsPt_%s_%u", origins[isSecondary].Data(), i_sample));
+      gEta[isSecondary][i_sample]->Write(Form("gResVsEta_%s_%u", origins[isSecondary].Data(), i_sample));
+    }
   printf("Figures in %s, histograms in %s\n", figureDir.Data(), out.GetName());
 }
