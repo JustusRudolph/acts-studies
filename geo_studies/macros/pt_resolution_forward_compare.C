@@ -79,6 +79,7 @@ int binOf(const std::vector<double>& bins, double x) {
 void pt_resolution_forward_compare(const std::vector<TString> samples,
                                    std::vector<TString> labels = {},
                                    const bool onSTBC = false,
+                                   const bool isPbPb = false,
                                    const TString particle = "",
                                    const int firstSeed = 0,
                                    const int lastSeed = -1,
@@ -105,6 +106,7 @@ void pt_resolution_forward_compare(const std::vector<TString> samples,
     tag.ReplaceAll(" ", "_");
   }
   if (pdgSelected > 0) tag += Form("_pdg%d", pdgSelected);
+  if (isPbPb) tag += "_PbPb";
   std::vector<TString> titles;
   for (const TString& org : origins)
     titles.push_back(org + Form(", 0.5 < p_{T} < 10 GeV, 1.5 < |#eta| < 2.5, #geq %d hits%s", minHits,

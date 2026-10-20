@@ -47,6 +47,7 @@ constexpr double etaMin = 1.5, etaMax = 2.5;
 void eff_forward_compare(const std::vector<TString> samples,
                          std::vector<TString> labels = {},
                          const bool onSTBC = false,
+                         const bool isPbPb = false,
                          const int firstSeed = 0,
                          const int lastSeed = -1,
                          const int minHits = 7,
@@ -65,6 +66,7 @@ void eff_forward_compare(const std::vector<TString> samples,
     for (const TString& label : labels) tag += (tag.IsNull() ? "" : "_vs_") + label;
     tag.ReplaceAll(" ", "_");
   }
+  if (isPbPb) tag += "_PbPb";
 
   // log pT bins from 10 MeV to 10 GeV, as in alice3_reproduce.C
   const int nPtBins = 20;
