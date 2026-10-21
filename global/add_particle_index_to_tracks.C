@@ -27,10 +27,6 @@ void add_particle_index_to_tracks(const TString pathToFilesFromOutput,
   using Key = std::tuple<unsigned, unsigned, unsigned, unsigned, unsigned, unsigned>;
   const TString dir = Utils::outputPathBase(onSTBC) + pathToFilesFromOutput + "/";
   const TString outFile = dir + TString(trackFile).ReplaceAll(".root", "_particle_index.root");
-  if (!gSystem->AccessPathName(outFile)) {
-    std::cout << outFile << " exists already, nothing to do." << std::endl;
-    return;
-  }
 
   TFile* fParticles = TFile::Open(dir + particleFile);
   TFile* fTracks = TFile::Open(dir + trackFile);
