@@ -1408,8 +1408,8 @@ void disc_coverage_v2(
                runWithMeasurements ? "_meas" : "");
     tag.ReplaceAll("/", "_");
     // append "_PbPb" to the tag if running with PbPb data
-    if (isPbPb) tag += "_PbPb";
   }
+  if (isPbPb) tag += "_PbPb";
 
   DiscCoverage analysis(geo_studies_base + "histos/geo/disc_coverage_" + tag + ".root",
                         actso2_output_base, pathBases,
