@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tracking Event Display</title>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f5f6f8; --text: #1d1f23; --muted: #6a6f78; --border: #d9dce1;
+    --accent: #2f6fdb; --plot-grid: #e6e8ec; --hover: #e9edf3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171b; --panel: #1e2126; --text: #e6e8eb; --muted: #9aa0a9; --border: #343840;
+      --accent: #6a9cf0; --plot-grid: #2a2e35; --hover: #262a31;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .app { display: grid; grid-template-columns: 400px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 12px 14px; }
+  main { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 8px; padding: 10px; min-width: 0; }
+  main header { grid-column: 1 / -1; color: var(--muted); display: flex; gap: 12px; align-items: flex-start; }
+  main header button { flex: none; font-weight: 600; }
+  #details { color: var(--text); }
+  #details .title { font-weight: 600; }
+  #plot3D { grid-column: 1 / -1; min-height: 600px; }
+  [hidden] { display: none !important; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  .modal-panel { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; width: min(1400px, 94vw); height: min(820px, 86vh);
+                 display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+  .modal-head { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .modal-head h3 { margin: 0; font-size: 14px; }
+  .modal-head .spacer { flex: 1; }
+  .tree-scroll { flex: 1; overflow: auto; padding: 12px; }
+  .tree-node rect { stroke: var(--border); stroke-width: 1; rx: 5; }
+  .tree-node.clickable rect { cursor: pointer; }
+  .tree-node.selected rect { stroke: var(--accent); stroke-width: 2.5; }
+  .tree-node text { fill: var(--text); font-size: 11px; pointer-events: none; }
+  .tree-node text.title { font-weight: 600; font-size: 12px; }
+  .tree-edge { fill: none; stroke-width: 1.6; }
+  .tree-edge-label { font-size: 10px; fill: var(--muted); }
+  .plot { min-height: 420px; min-width: 0; border: 1px solid var(--border); border-radius: 6px; }
+  h1 { font-size: 15px; margin: 0 0 2px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+  .sub { color: var(--muted); margin-bottom: 6px; }
+  .range { margin-bottom: 10px; }
+  .range .label { display: flex; justify-content: space-between; }
+  .range .label span:last-child { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .range .sliders { position: relative; height: 22px; }
+  .range input[type=range] { position: absolute; width: 100%; top: 2px; margin: 0; pointer-events: none;
+                             background: none; -webkit-appearance: none; appearance: none; }
+  .range input[type=range]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none;
+      width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+  .range input[type=range]::-moz-range-thumb { pointer-events: auto; width: 14px; height: 14px;
+      border: none; border-radius: 50%; background: var(--accent); cursor: pointer; }
+  .range .track { position: absolute; left: 0; right: 0; top: 9px; height: 3px; border-radius: 2px; background: var(--border); }
+  select, input[type=number], input[type=search] { background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; font: inherit; }
+  input[type=search] { width: 100%; }
+  .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; }
+  .grid2 select, .grid2 input { width: 100%; }
+  .browser { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+  .browser-head { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .browser-head .summary { font-weight: 600; }
+  #tree { max-height: 460px; overflow: auto; padding: 2px 0; font-variant-numeric: tabular-nums; }
+  .row { display: flex; gap: 5px; align-items: center; padding: 1px 6px; white-space: nowrap; cursor: default; }
+  .row:hover { background: var(--hover); }
+  .row.focus { background: var(--hover); box-shadow: inset 3px 0 0 var(--accent); }
+  .row .twisty { width: 12px; flex: none; color: var(--muted); cursor: pointer; user-select: none; text-align: center; }
+  .row .name { cursor: pointer; }
+  .row .meta { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  .row code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .row.depth1 { padding-left: 22px; } .row.depth2 { padding-left: 40px; }
+  .row.event .name { font-weight: 600; }
+  .row.more { color: var(--accent); cursor: pointer; padding-left: 58px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+  button { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+           padding: 2px 8px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .opt { display: block; margin: 2px 0; }
+  .ok { color: #2a9d55; } .warn { color: #c77a12; } .bad { color: #d0473b; }
+  .note { color: var(--muted); font-size: 12px; }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; height: auto; }
+    aside { border-right: none; border-bottom: 1px solid var(--border); }
+    main { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>Event display</h1>
+    <div class="sub" id="sample"></div>
+
+    <h2>Particle filters</h2>
+    <div id="filters"></div>
+    <div class="grid2">
+      <span>Type</span>
+      <select id="typeFilter">
+        <option value="all">all</option>
+        <option value="primary">primaries</option>
+        <option value="secondary">secondaries</option>
+      </select>
+      <span>Status</span>
+      <select id="statusFilter">
+        <option value="all">all</option>
+        <option value="sel">in efficiency selection</option>
+        <option value="reco">reconstructed</option>
+        <option value="noreco">not reconstructed</option>
+        <option value="seeded">seeded</option>
+        <option value="noseed">not seeded</option>
+        <option value="seedNoReco">seeded, not reconstructed</option>
+      </select>
+      <span>Charge</span>
+      <select id="chargeFilter">
+        <option value="all">all</option>
+        <option value="charged">charged</option>
+        <option value="neutral">neutral</option>
+      </select>
+      <span>Ended</span>
+      <select id="restFilter">
+        <option value="all">all</option>
+        <option value="rest">at rest (e_loss = T_kin)</option>
+        <option value="moving">with momentum left</option>
+      </select>
+      <span>Species / ID</span>
+      <input type="search" id="speciesSearch" placeholder="π⁺, e, 211, #14533, 1-0-14533 …">
+    </div>
+
+    <h2>Events and particles</h2>
+    <div class="browser">
+      <div class="browser-head">
+        <div class="summary" id="treeSummary"></div>
+        <input type="search" id="eventSearch" placeholder="Event id…">
+        <div class="buttons">
+          <button id="selectFirst">First 10 events</button>
+          <button id="selectShown">All shown</button>
+          <button id="clearSelection">Clear</button>
+          <button id="collapseAll">Collapse</button>
+        </div>
+      </div>
+      <div id="tree"></div>
+    </div>
+    <p class="note">The checkboxes of an event or folder select the particles in it that pass the filters. Click a particle's name to inspect it.
+      Efficiencies count the particles in the efficiency selection (the matching details).</p>
+
+    <h2>Draw</h2>
+    <div class="grid2" style="margin-bottom: 6px;">
+      <span>Colour by</span>
+      <select id="colorMode">
+        <option value="particle">particle</option>
+        <option value="status">status (reco / seeded only / not seeded)</option>
+        <option value="event">event</option>
+      </select>
+    </div>
+    <label class="opt"><input type="checkbox" id="showMissed" checked> Open markers: hits that no track of the particle picked up</label>
+    <label class="opt"><input type="checkbox" id="showVertices" checked> Production vertices of secondaries</label>
+    <label class="opt"><input type="checkbox" id="showHelix" checked> Ideal helix (uniform B, no energy loss)</label>
+    <label class="opt" style="padding-left: 22px;">turns <input type="number" id="helixTurns" value="1.5" min="0.25" max="10" step="0.25" style="width: 60px;"></label>
+    <label class="opt"><input type="checkbox" id="showMeasurements" checked> Track measurements</label>
+    <label class="opt"><input type="checkbox" id="showSmoothed" checked> Track smoothed states</label>
+
+    <h2>Layers</h2>
+    <div class="buttons" style="padding: 0 0 6px;">
+      <button data-layers="sensitive:on">Sensitive on</button>
+      <button data-layers="sensitive:off">Sensitive off</button>
+      <button data-layers="passive:on">Passive on</button>
+      <button data-layers="passive:off">Passive off</button>
+    </div>
+    <div id="layerList"></div>
+    <p class="note">Sensitive layers are estimated from where the hits are; passive ones come from the Gen3 geometry config.</p>
+    <p class="note">Ctrl + scroll zooms a view; drag to pan or box-zoom (toolbar), double-click to reset.</p>
+  </aside>
+  <main>
+    <header>
+      <button id="viewToggle">3D view</button><button id="treeOpen">Decay tree</button>
+      <div><div id="status"></div><div id="details"></div></div>
+    </header>
+    <div id="plotXY" class="plot"></div>
+    <div id="plotRZ" class="plot"></div>
+    <div id="plot3D" class="plot" hidden></div>
+  </main>
+</div>
+<div class="modal" id="treeModal" hidden>
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h3 id="treeTitle">Particles and decays</h3>
+      <span class="note">Left to right by generation, siblings ordered by production time. Dashed link: parent inferred from geometry. Click a particle with hits to select and inspect it.</span>
+      <span class="spacer"></span>
+      <button id="treeClose">Close</button>
+    </div>
+    <div class="tree-scroll" id="treeScroll"></div>
+  </div>
+</div>
+
+<script>
+const DATA = /*__EVENT_DATA__*/null;
+const PALETTE = ["#2f6fdb", "#e0612b", "#2a9d55", "#b23aa8", "#c99a12", "#16a3b8", "#d0473b", "#6a51c9", "#7a8b1e", "#b55a7a"];
+const STATUS_COLORS = { reco: "#2a9d55", seeded: "#e0912b", none: "#d0473b", unsel: "#8a919c" };
+const FAKE_COLOR = "#8a919c";
+const MAX_DRAWN = 30000;      // selected particles
+const ROWS_PER_FOLDER = 200;  // particle rows shown per folder before "show more"
+const MAX_EVENT_ROWS = 1000;
+const KAPPA = 0.299792458;    // GeV / (T m)
+const PROCESS_NAMES = { 0: "primary", 1: "decay", 2: "conversion", 3: "bremsstrahlung", 4: "nuclear", 5: "ionisation (δ-ray)", 6: "other EM" };
+const TRACK_CLASSES = { 0: "unknown", 1: "matched", 2: "duplicate", 3: "fake" };
+
+const byId = (id) => document.getElementById(id);
+const events = DATA.events;
+const eventById = new Map(events.map((ev) => [ev.id, ev]));
+const partById = new Map();
+const trackById = new Map();
+const state = {
+  selected: new Set(),        // particle ids "event:barcode"
+  selectedTracks: new Set(),  // fake track ids "event#nr"
+  focus: null,                // particle id
+  open: new Set(),            // tree nodes: "e<id>", "e<id>p", "e<id>s", "e<id>f"
+  rowLimit: new Map(),
+  layersOn: new Set(),
+  revision: 0,                // bumped on selection changes, so a new selection re-zooms
+};
+
+// ---------- indexing ----------
+const hasAnyStatus = DATA.hasSeedStatus || DATA.hasRecoStatus;
+let partIndex = 0;
+events.forEach((ev, i_event) => { ev.order = i_event; });
+for (const ev of events) {
+  ev.byKey = new Map();
+  for (const part of ev.parts) {
+    part.ev = ev; part.id = `${ev.id}:${part.k}`; part.idx = partIndex++; part.tracks = [];
+    if (!hasAnyStatus) part.sel = part.g === 0;  // no matching details: count primaries
+    ev.byKey.set(part.k, part); partById.set(part.id, part);
+  }
+  ev.fakes = [];
+  for (const track of ev.tracks) {
+    track.ev = ev; track.id = `${ev.id}#${track.nr}`; trackById.set(track.id, track);
+    const owner = track.key ? ev.byKey.get(track.key) : null;
+    track.owner = owner || null;
+    if (owner && track.cls !== 3) owner.tracks.push(track); else ev.fakes.push(track);
+  }
+  if (!DATA.hasRecoStatus) for (const part of ev.parts) part.reco = part.sel ? part.tracks.length > 0 : null;
+}
+function statusOf(part) {
+  if (!part.sel) return "unsel";
+  if (part.reco) return "reco";
+  return part.seed && part.seed.length ? "seeded" : "none";
+}
+
+// ---------- names and formatting ----------
+const PDG_NAMES = { 11: "e⁻", [-11]: "e⁺", 13: "μ⁻", [-13]: "μ⁺", 15: "τ⁻", [-15]: "τ⁺", 12: "νe", [-12]: "ν̄e", 14: "νμ", [-14]: "ν̄μ",
+  16: "ντ", [-16]: "ν̄τ", 22: "γ", 111: "π⁰", 211: "π⁺", [-211]: "π⁻", 130: "K⁰L", 310: "K⁰S", 321: "K⁺", [-321]: "K⁻",
+  2212: "p", [-2212]: "p̄", 2112: "n", [-2112]: "n̄", 3122: "Λ", [-3122]: "Λ̄", 3112: "Σ⁻", 3222: "Σ⁺", 3312: "Ξ⁻", [-3312]: "Ξ̄⁺", 3334: "Ω⁻",
+  1000010020: "d", 1000010030: "t", 1000020030: "³He", 1000020040: "α" };
+function particleName(pdg) {
+  if (PDG_NAMES[pdg]) return PDG_NAMES[pdg];
+  if (pdg > 1000000000) { const z = Math.floor(pdg / 10000) % 1000, a = Math.floor(pdg / 10) % 1000; return `nucleus Z=${z} A=${a}`; }
+  return `pdg ${pdg}`;
+}
+// plain-ASCII aliases so "pi+" or "mu" finds π⁺ and μ
+const ASCII_NAMES = { 11: "e- electron", [-11]: "e+ positron", 13: "mu- muon", [-13]: "mu+ muon", 211: "pi+ pion", [-211]: "pi- pion",
+  321: "k+ kaon", [-321]: "k- kaon", 2212: "p proton", [-2212]: "pbar antiproton", 22: "gamma photon", 2112: "n neutron" };
+const escapeHtml = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const fmtMomentum = (gev) => (Math.abs(gev) >= 1 ? `${gev.toFixed(2)} GeV` : `${(gev * 1000).toFixed(Math.abs(gev) < 0.01 ? 1 : 0)} MeV`);
+function seedText(part) {
+  if (!DATA.hasSeedStatus || !part.sel) return "";
+  return part.seed && part.seed.length ? `<span class="ok">seed it ${part.seed.join(",")}</span>` : `<span class="bad">no seed</span>`;
+}
+function recoText(part) {
+  if (!part.sel) return `<span class="note">not in eff. selection</span>`;
+  return part.reco ? `<span class="ok">reco</span>` : `<span class="bad">not reco</span>`;
+}
+
+// ---------- header ----------
+const nParts = events.reduce((sum, ev) => sum + ev.parts.length, 0);
+byId("sample").textContent = `${DATA.sample} · ${events.length} events · ${nParts} particles with hits · B = ${DATA.bField} T`;
+if (!DATA.hasSeedStatus) for (const value of ["seeded", "noseed", "seedNoReco"]) byId("statusFilter").querySelector(`[value=${value}]`).remove();
+if (events.every((ev) => !ev.tree)) byId("treeOpen").style.display = "none";  // made with --no-decay-tree
+
+// ---------- range filters ----------
+function extentOf(key) {
+  let lo = Infinity, hi = -Infinity;
+  for (const ev of events) for (const part of ev.parts) { lo = Math.min(lo, part[key]); hi = Math.max(hi, part[key]); }
+  return [lo, hi];
+}
+function niceStep(span) { const raw = span / 200; const pow = 10 ** Math.floor(Math.log10(raw || 1)); return Math.max(pow, raw - (raw % pow)); }
+const ptExtent = extentOf("pt");
+const ptIsLog = ptExtent[1] / Math.max(ptExtent[0], 1e-4) > 50;
+const filterDefs = [
+  { key: "nHits", label: "Hits", format: (v) => v.toFixed(0), integer: true },
+  { key: "eta", label: "η", format: (v) => v.toFixed(2) },
+  ptIsLog
+    ? { key: "pt", label: "pT (log scale)", log: true, format: (v) => fmtMomentum(10 ** v) }
+    : { key: "pt", label: "pT", format: (v) => fmtMomentum(v) },
+];
+const filters = {};
+for (const def of filterDefs) {
+  let [lo, hi] = extentOf(def.key);
+  if (def.log) { lo = Math.log10(Math.max(lo, 1e-4)); hi = Math.log10(Math.max(hi, 1e-4)); }
+  const step = def.integer ? 1 : niceStep(hi - lo);
+  lo = def.integer ? lo : Math.floor(lo / step) * step;
+  hi = def.integer ? hi : Math.ceil(hi / step) * step;
+  const wrap = document.createElement("div");
+  wrap.className = "range";
+  wrap.innerHTML = `<div class="label"><span>${def.label}</span><span></span></div>
+    <div class="sliders"><div class="track"></div>
+    <input type="range" min="${lo}" max="${hi}" step="${step}" value="${lo}">
+    <input type="range" min="${lo}" max="${hi}" step="${step}" value="${hi}"></div>`;
+  byId("filters").appendChild(wrap);
+  const [lowInput, highInput] = wrap.querySelectorAll("input");
+  const readout = wrap.querySelector(".label span:last-child");
+  const sync = (moved) => {
+    if (+lowInput.value > +highInput.value) { if (moved === lowInput) highInput.value = lowInput.value; else lowInput.value = highInput.value; }
+    // the ends of the sliders mean "no limit", so rounding never drops a particle at the edge
+    filters[def.key] = [+lowInput.value <= lo ? -Infinity : +lowInput.value, +highInput.value >= hi ? Infinity : +highInput.value];
+    readout.textContent = `${def.format(+lowInput.value)} – ${def.format(+highInput.value)}`;
+  };
+  for (const input of [lowInput, highInput]) input.addEventListener("input", () => { sync(input); scheduleRefresh(); });
+  sync(lowInput);
+}
+let refreshPending = false;
+function scheduleRefresh() {
+  if (refreshPending) return;
+  refreshPending = true;
+  requestAnimationFrame(() => { refreshPending = false; refreshTree(); });
+}
+for (const id of ["typeFilter", "statusFilter", "chargeFilter", "restFilter"]) byId(id).addEventListener("change", refreshTree);
+for (const id of ["speciesSearch", "eventSearch"]) byId(id).addEventListener("input", scheduleRefresh);
+
+function speciesMatcher() {
+  const query = byId("speciesSearch").value.trim().toLowerCase();
+  if (!query) return null;
+  // "#14533": barcode particle number; "1-0-14533…": barcode prefix
+  if (/^#\d+$/.test(query)) return (part) => part.k.split("-")[2] === query.slice(1);
+  if (/^\d+(-\d+)+-?$/.test(query)) return (part) => part.k.startsWith(query);
+  return (part) => {
+    if (/^-?\d+$/.test(query)) return part.pdg === Number(query) || (!query.startsWith("-") && Math.abs(part.pdg) === Number(query));
+    return particleName(part.pdg).toLowerCase().startsWith(query) || (ASCII_NAMES[part.pdg] || "").split(" ").some((word) => word.startsWith(query));
+  };
+}
+function makeFilter() {
+  const type = byId("typeFilter").value, status = byId("statusFilter").value;
+  const charge = byId("chargeFilter").value, rest = byId("restFilter").value;
+  const species = speciesMatcher();
+  return (part) => {
+    for (const def of filterDefs) {
+      const [lo, hi] = filters[def.key];
+      const value = def.log ? Math.log10(Math.max(part[def.key], 1e-4)) : part[def.key];
+      if (value < lo - 1e-9 || value > hi + 1e-9) return false;
+    }
+    if (type === "primary" && part.g !== 0) return false;
+    if (type === "secondary" && part.g === 0) return false;
+    const isSeeded = !!(part.seed && part.seed.length);
+    if (status !== "all" && !part.sel) return false;
+    if (status === "reco" && !part.reco) return false;
+    if (status === "noreco" && part.reco) return false;
+    if (status === "seeded" && !isSeeded) return false;
+    if (status === "noseed" && isSeeded) return false;
+    if (status === "seedNoReco" && (!isSeeded || part.reco)) return false;
+    if (charge === "charged" && !part.q) return false;
+    if (charge === "neutral" && part.q) return false;
+    if (rest === "rest" && !part.atRest) return false;
+    if (rest === "moving" && part.atRest) return false;
+    if (species && !species(part)) return false;
+    return true;
+  };
+}
+
+// ---------- event / particle browser ----------
+let view = [];  // per shown event: { ev, prim, sec, fakes }
+function refreshTree() {
+  const passes = makeFilter();
+  const search = byId("eventSearch").value.trim();
+  const showFakes = byId("statusFilter").value === "all" && byId("typeFilter").value === "all" && !byId("speciesSearch").value.trim();
+  view = [];
+  for (const ev of events) {
+    if (search && !String(ev.id).startsWith(search)) continue;
+    const prim = [], sec = [];
+    for (const part of ev.parts) if (passes(part)) (part.g === 0 ? prim : sec).push(part);
+    const fakes = showFakes ? ev.fakes : [];
+    if (!prim.length && !sec.length) continue;
+    prim.sort((a, b) => b.pt - a.pt); sec.sort((a, b) => b.pt - a.pt);
+    view.push({ ev, prim, sec, fakes });
+  }
+  renderTree();
+}
+function efficiencyText(parts) {
+  let nSel = 0, nSeeded = 0, nReco = 0;
+  for (const part of parts) {
+    if (!part.sel) continue;
+    nSel++; if (part.seed && part.seed.length) nSeeded++; if (part.reco) nReco++;
+  }
+  if (!nSel) return "";
+  const pct = (count) => (nSel > 1 ? ` (${((100 * count) / nSel).toFixed(0)}%)` : "");
+  const seed = DATA.hasSeedStatus ? `seed ${nSeeded}/${nSel}${pct(nSeeded)} · ` : "";
+  return `${seed}reco ${nReco}/${nSel}${pct(nReco)}`;
+}
+function checkState(parts, tracks = []) {
+  let count = 0;
+  for (const part of parts) if (state.selected.has(part.id)) count++;
+  for (const track of tracks) if (state.selectedTracks.has(track.id)) count++;
+  const total = parts.length + tracks.length;
+  return count === 0 ? "" : count === total ? "checked" : "data-indet";
+}
+function colorOf(part) {
+  const mode = byId("colorMode").value;
+  if (mode === "status") return STATUS_COLORS[statusOf(part)];
+  if (mode === "event") return PALETTE[part.ev.order % PALETTE.length];
+  return PALETTE[part.idx % PALETTE.length];
+}
+const plainText = (htmlText) => htmlText.replace(/<[^>]+>/g, "").replace(/"/g, "&quot;");
+function particleRow(part) {
+  const isSelected = state.selected.has(part.id);
+  const swatch = isSelected ? `background:${colorOf(part)}` : "background:transparent";
+  const generation = part.g ? ` · gen ${part.g} ${escapeHtml(PROCESS_NAMES[part.proc] ?? "")}` : "";
+  const seed = seedText(part);
+  return `<div class="row depth2${state.focus === part.id ? " focus" : ""}" data-part="${part.id}">
+    <input type="checkbox" data-check="part" ${isSelected ? "checked" : ""}><span class="swatch" style="${swatch}"></span>
+    <span class="name">${escapeHtml(particleName(part.pdg))}</span><code>${part.k}</code>
+    <span class="meta" title="${plainText(`${particleName(part.pdg)} ${part.k} · pT ${fmtMomentum(part.pt)} · η ${part.eta.toFixed(2)} · ${part.nHits} hits${generation} · ${seed ? seed + " · " : ""}${recoText(part)}`)}">pT ${fmtMomentum(part.pt)} · η ${part.eta.toFixed(2)} · ${part.nHits} hits${generation} · ${seed ? seed + " · " : ""}${recoText(part)}</span></div>`;
+}
+function trackRow(track) {
+  const owner = track.owner ? ` · majority ${escapeHtml(particleName(track.owner.pdg))}` : "";
+  return `<div class="row depth2" data-track="${track.id}">
+    <input type="checkbox" data-check="track" ${state.selectedTracks.has(track.id) ? "checked" : ""}>
+    <span class="name">track ${track.nr}</span>
+    <span class="meta">${TRACK_CLASSES[track.cls]} · ${track.nMeas} meas${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}${owner}</span></div>`;
+}
+function folderRows(node, label, items, rowOf, extra = "") {
+  if (!items.length) return "";
+  const isOpen = state.open.has(node);
+  const isTracks = node.endsWith("f");
+  const check = isTracks ? checkState([], items) : checkState(items);
+  const rows = [`<div class="row depth1" data-node="${node}"><span class="twisty">${isOpen ? "▾" : "▸"}</span>
+    <input type="checkbox" data-check="folder" ${check}><span class="name">${label} (${items.length})</span><span class="meta">${extra}</span></div>`];
+  if (isOpen) {
+    const limit = state.rowLimit.get(node) || ROWS_PER_FOLDER;
+    for (const item of items.slice(0, limit)) rows.push(rowOf(item));
+    if (items.length > limit) rows.push(`<div class="row more" data-more="${node}">show ${Math.min(ROWS_PER_FOLDER, items.length - limit)} more of ${items.length - limit}…</div>`);
+  }
+  return rows.join("");
+}
+function renderTree() {
+  const rows = [];
+  for (const entry of view.slice(0, MAX_EVENT_ROWS)) {
+    const { ev, prim, sec, fakes } = entry;
+    const node = `e${ev.id}`;
+    const isOpen = state.open.has(node);
+    const all = prim.concat(sec);
+    rows.push(`<div class="row event" data-node="${node}"><span class="twisty">${isOpen ? "▾" : "▸"}</span>
+      <input type="checkbox" data-check="event" ${checkState(all, fakes)}><span class="name">ev ${ev.id}</span>
+      <span class="meta">${all.length} particles${efficiencyText(all) ? ` · ${efficiencyText(all)}` : ""}</span></div>`);
+    if (!isOpen) continue;
+    rows.push(folderRows(`${node}p`, "Primaries", prim, particleRow, efficiencyText(prim)));
+    rows.push(folderRows(`${node}s`, "Secondaries", sec, particleRow, efficiencyText(sec)));
+    rows.push(folderRows(`${node}f`, "Fake / unmatched tracks", fakes, trackRow));
+  }
+  if (view.length > MAX_EVENT_ROWS) rows.push(`<div class="row note">… ${view.length - MAX_EVENT_ROWS} more events, narrow the filters or search an id</div>`);
+  if (!view.length) rows.push(`<div class="row note">No particle passes the filters.</div>`);
+  const tree = byId("tree");
+  tree.innerHTML = rows.join("");
+  tree.querySelectorAll("[data-indet]").forEach((box) => { box.indeterminate = true; });
+  const allShown = view.flatMap((entry) => entry.prim.concat(entry.sec));
+  const efficiency = efficiencyText(allShown);
+  byId("treeSummary").textContent = `${view.length} events · ${allShown.length} particles · ${state.selected.size} selected${efficiency ? ` · ${efficiency}` : ""}`;
+}
+function entryOf(node) { return view.find((entry) => `e${entry.ev.id}` === node.replace(/[psf]$/, "")); }
+function itemsOf(node) {
+  const entry = entryOf(node);
+  if (!entry) return { parts: [], tracks: [] };
+  if (node.endsWith("p")) return { parts: entry.prim, tracks: [] };
+  if (node.endsWith("s")) return { parts: entry.sec, tracks: [] };
+  if (node.endsWith("f")) return { parts: [], tracks: entry.fakes };
+  return { parts: entry.prim.concat(entry.sec), tracks: entry.fakes };
+}
+function setSelected(parts, tracks, isOn) {
+  for (const part of parts) {
+    if (!isOn) state.selected.delete(part.id);
+    else if (state.selected.size < MAX_DRAWN) state.selected.add(part.id);
+  }
+  for (const track of tracks) isOn ? state.selectedTracks.add(track.id) : state.selectedTracks.delete(track.id);
+  state.revision++;
+}
+byId("tree").addEventListener("click", (e) => {
+  const row = e.target.closest(".row");
+  if (!row) return;
+  if (row.dataset.more) {
+    state.rowLimit.set(row.dataset.more, (state.rowLimit.get(row.dataset.more) || ROWS_PER_FOLDER) + ROWS_PER_FOLDER);
+    renderTree(); return;
+  }
+  if (e.target.matches("input")) return;  // handled by "change"
+  if (row.dataset.node && (e.target.closest(".twisty") || e.target.closest(".name") || e.target.closest(".meta"))) {
+    const node = row.dataset.node;
+    state.open.has(node) ? state.open.delete(node) : state.open.add(node);
+    // opening an event opens its primaries too, the folder one usually wants
+    if (!node.match(/[psf]$/) && state.open.has(node)) state.open.add(`${node}p`);
+    renderTree(); return;
+  }
+  if (row.dataset.part && e.target.closest(".name, .meta")) {
+    const part = partById.get(row.dataset.part);
+    focusParticle(state.focus === part.id ? null : part);
+  }
+});
+byId("tree").addEventListener("change", (e) => {
+  const row = e.target.closest(".row");
+  if (!row || !e.target.dataset.check) return;
+  const isOn = e.target.checked;
+  if (row.dataset.part) setSelected([partById.get(row.dataset.part)], [], isOn);
+  else if (row.dataset.track) setSelected([], [trackById.get(row.dataset.track)], isOn);
+  else if (row.dataset.node) { const { parts, tracks } = itemsOf(row.dataset.node); setSelected(parts, tracks, isOn); }
+  renderTree(); draw();
+});
+function focusParticle(part) {
+  if (part && !state.selected.has(part.id)) setSelected([part], [], true);
+  state.focus = part ? part.id : null;
+  if (part) { state.open.add(`e${part.ev.id}`); state.open.add(`e${part.ev.id}${part.g === 0 ? "p" : "s"}`); }
+  renderTree(); draw();
+  if (!byId("treeModal").hidden) renderDecayTree();
+}
+byId("selectFirst").addEventListener("click", () => {
+  state.selected.clear(); state.selectedTracks.clear();
+  for (const entry of view.slice(0, 10)) setSelected(entry.prim.concat(entry.sec), [], true);
+  state.revision++; renderTree(); draw();
+});
+byId("selectShown").addEventListener("click", () => {
+  for (const entry of view) setSelected(entry.prim.concat(entry.sec), [], true);
+  renderTree(); draw();
+});
+byId("clearSelection").addEventListener("click", () => {
+  state.selected.clear(); state.selectedTracks.clear(); state.focus = null; state.revision++;
+  renderTree(); draw();
+});
+byId("collapseAll").addEventListener("click", () => { state.open.clear(); renderTree(); });
+byId("colorMode").addEventListener("change", () => { renderTree(); draw(); });
+
+// ---------- layers ----------
+const layerList = byId("layerList");
+for (const group of [["Sensitive", true], ["Passive", false]]) {
+  const layers = DATA.layers.filter((layer) => layer.sensitive === group[1]);
+  if (!layers.length) continue;
+  const title = document.createElement("div");
+  title.className = "note"; title.style.marginTop = "6px"; title.textContent = group[0];
+  layerList.appendChild(title);
+  for (const layer of layers) {
+    state.layersOn.add(layer.id);
+    const label = document.createElement("label");
+    label.className = "opt";
+    label.innerHTML = `<input type="checkbox" data-layer="${escapeHtml(layer.id)}" checked> ${escapeHtml(layer.name)}`;
+    layerList.appendChild(label);
+  }
+}
+layerList.addEventListener("change", (e) => {
+  const id = e.target.dataset.layer;
+  if (!id) return;
+  e.target.checked ? state.layersOn.add(id) : state.layersOn.delete(id);
+  draw();
+});
+document.querySelectorAll("[data-layers]").forEach((button) => button.addEventListener("click", () => {
+  const [group, mode] = button.dataset.layers.split(":");
+  for (const layer of DATA.layers) {
+    if (layer.sensitive !== (group === "sensitive")) continue;
+    mode === "on" ? state.layersOn.add(layer.id) : state.layersOn.delete(layer.id);
+    const box = layerList.querySelector(`[data-layer="${CSS.escape(layer.id)}"]`);
+    if (box) box.checked = mode === "on";
+  }
+  draw();
+}));
+for (const id of ["showMissed", "showVertices", "showHelix", "showMeasurements", "showSmoothed", "helixTurns"]) byId(id).addEventListener("change", draw);
+
+// detector envelope, to clip the ideal helices of stiff particles
+const DETECTOR = { r: 0, z: 0 };
+for (const layer of DATA.layers) {
+  DETECTOR.r = Math.max(DETECTOR.r, layer.kind === "cylinder" ? layer.r : layer.rMax);
+  DETECTOR.z = Math.max(DETECTOR.z, ...(layer.kind === "cylinder" ? [Math.abs(layer.zMin), Math.abs(layer.zMax)] : [Math.abs(layer.z)]));
+}
+DETECTOR.r *= 1.05; DETECTOR.z *= 1.05;
+
+// ---------- geometry helpers ----------
+function circle(r, n = 180) {
+  const xs = [], ys = [];
+  for (let i_point = 0; i_point <= n; i_point++) { const a = (2 * Math.PI * i_point) / n; xs.push(r * Math.cos(a)); ys.push(r * Math.sin(a)); }
+  return [xs, ys];
+}
+function helix(part, turns) {
+  // centre of curvature: positive charge in +B_z turns clockwise (seen from +z)
+  const radius = (part.pt / (KAPPA * DATA.bField)) * 1000; // mm
+  const sign = Math.sign(part.q) || 1;
+  const cx = part.vx + (sign * radius * part.py) / part.pt;
+  const cy = part.vy - (sign * radius * part.px) / part.pt;
+  const a0 = Math.atan2(part.vy - cy, part.vx - cx);
+  const xs = [], ys = [], zs = [], rs = [];
+  const n = Math.max(40, Math.round(turns * 120));
+  for (let i_point = 0; i_point <= n; i_point++) {
+    const psi = (2 * Math.PI * turns * i_point) / n;
+    const x = cx + radius * Math.cos(a0 - sign * psi);
+    const y = cy + radius * Math.sin(a0 - sign * psi);
+    const z = part.vz + (radius * psi * part.pz) / part.pt;
+    const r = Math.hypot(x, y);
+    if (r > DETECTOR.r || Math.abs(z) > DETECTOR.z) break;  // left the detector
+    xs.push(x); ys.push(y); zs.push(z); rs.push(r);
+  }
+  return { xs, ys, zs, rs, radius, rmax: Math.hypot(cx, cy) + radius };
+}
+const rOf = (xs, ys) => xs.map((x, i_point) => Math.hypot(x, ys[i_point]));
+
+// ---------- drawing ----------
+// Wheel zoom only with ctrl held: plain scrolling is stopped before it reaches Plotly (so the
+// page scrolls as usual), and ctrl+wheel no longer zooms the whole browser page.
+const PLOT_CONFIG = { responsive: true, displaylogo: false, scrollZoom: true };
+for (const plotId of ["plotXY", "plotRZ", "plot3D"]) {
+  byId(plotId).addEventListener("wheel", (e) => {
+    if (e.ctrlKey) e.preventDefault();
+    else e.stopPropagation();
+  }, { capture: true, passive: false });
+}
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function loadView() { try { return localStorage.getItem("eventDisplayView") === "3d" ? "3d" : "2d"; } catch { return "2d"; } }
+state.view = loadView();
+function applyView() {
+  const is3D = state.view === "3d";
+  byId("plotXY").hidden = is3D; byId("plotRZ").hidden = is3D; byId("plot3D").hidden = !is3D;
+  byId("viewToggle").textContent = is3D ? "2D views" : "3D view";
+}
+byId("viewToggle").addEventListener("click", () => {
+  state.view = state.view === "3d" ? "2d" : "3d";
+  try { localStorage.setItem("eventDisplayView", state.view); } catch {}
+  applyView(); draw();
+  for (const plotId of ["plotXY", "plotRZ", "plot3D"]) if (!byId(plotId).hidden && byId(plotId).data) Plotly.Plots.resize(plotId);
+});
+applyView();
+
+// wireframes of the layers for the 3D view, clipped to the region being looked at
+function joinSegments(segments) {
+  const out = { x: [], y: [], z: [] };
+  for (const seg of segments) { out.x.push(...seg.x, null); out.y.push(...seg.y, null); out.z.push(...seg.z, null); }
+  return out;
+}
+function ring(r, z, n = 120) { const [xs, ys] = circle(r, n); return { x: xs, y: ys, z: xs.map(() => z) }; }
+// Rings at both ends of the drawn piece (real end or clip edge) so the barrel reads as a cylinder.
+function cylinderWire(r, zMin, zMax) {
+  const segments = [ring(r, zMin), ring(r, zMax)];
+  for (let i_line = 0; i_line < 12; i_line++) {
+    const a = (2 * Math.PI * i_line) / 12;
+    segments.push({ x: [r * Math.cos(a), r * Math.cos(a)], y: [r * Math.sin(a), r * Math.sin(a)], z: [zMin, zMax] });
+  }
+  return joinSegments(segments);
+}
+function discWire(rMin, rMax, z) {
+  const segments = [ring(rMin, z), ring(rMax, z)];
+  for (let i_line = 0; i_line < 12; i_line++) {
+    const a = (2 * Math.PI * i_line) / 12;
+    segments.push({ x: [rMin * Math.cos(a), rMax * Math.cos(a)], y: [rMin * Math.sin(a), rMax * Math.sin(a)], z: [z, z] });
+  }
+  return joinSegments(segments);
+}
+
+// Points of many particles are batched into a few WebGL traces: markers carry per-point
+// colours, lines are grouped by colour and separated by nulls.
+function pointBatch() { return { x: [], y: [], z: [], r: [], color: [], text: [] }; }
+function lineBatches() {
+  const groups = new Map();
+  return {
+    add(color, xs, ys, zs, text) {
+      if (!groups.has(color)) groups.set(color, pointBatch());
+      const batch = groups.get(color);
+      for (let i_point = 0; i_point < xs.length; i_point++) {
+        batch.x.push(xs[i_point]); batch.y.push(ys[i_point]); batch.z.push(zs[i_point]);
+        batch.r.push(Math.hypot(xs[i_point], ys[i_point])); batch.text.push(text);
+      }
+      batch.x.push(null); batch.y.push(null); batch.z.push(null); batch.r.push(null); batch.text.push(null);
+    },
+    groups,
+  };
+}
+function partLabel(part) { return `ev ${part.ev.id} · ${particleName(part.pdg)} ${part.k} · pT ${fmtMomentum(part.pt)}`; }
+function trackLabel(track) { return `ev ${track.ev.id} track ${track.nr} (${TRACK_CLASSES[track.cls]}) · ${track.nMeas} meas${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}`; }
+
+function draw() {
+  const xy = [], rz = [], xyz = [];
+  const layerColor = (layer) => (layer.sensitive ? "rgba(120,130,145,0.55)" : "rgba(196,150,90,0.55)");
+  for (const layer of DATA.layers) {
+    if (!state.layersOn.has(layer.id)) continue;
+    const common = { mode: "lines", hoverinfo: "name", name: layer.name, showlegend: false,
+                     line: { color: layerColor(layer), width: layer.sensitive ? 1.2 : 2, dash: layer.sensitive ? "solid" : "dot" } };
+    if (layer.kind === "cylinder") {
+      const [xs, ys] = circle(layer.r);
+      xy.push({ ...common, x: xs, y: ys });
+      rz.push({ ...common, x: [layer.zMin, layer.zMax], y: [layer.r, layer.r] });
+    } else {
+      for (const r of [layer.rMin, layer.rMax]) { const [xs, ys] = circle(r); xy.push({ ...common, x: xs, y: ys, line: { ...common.line, width: 0.8 } }); }
+      rz.push({ ...common, x: [layer.z, layer.z], y: [layer.rMin, layer.rMax] });
+    }
+  }
+
+  const selectedParts = [...state.selected].map((id) => partById.get(id)).filter(Boolean);
+  const focus = state.focus ? partById.get(state.focus) : null;
+  const turns = Math.max(0.25, +byId("helixTurns").value || 1.5);
+  const span = { r: 0, zMin: Infinity, zMax: -Infinity };
+  const extend = (x, y, z) => {
+    span.r = Math.max(span.r, Math.hypot(x, y)); span.zMin = Math.min(span.zMin, z); span.zMax = Math.max(span.zMax, z);
+  };
+
+  const primaryHits = pointBatch(), secondaryHits = pointBatch(), primaryMissed = pointBatch(), secondaryMissed = pointBatch();
+  const measurements = pointBatch(), foreignMeasurements = pointBatch(), vertices = pointBatch();
+  const markMissed = byId("showMissed").checked;
+  const smoothed = lineBatches(), helices = lineBatches();
+  const familiesByEvent = new Map();
+  const drawTrack = (track, color) => {
+    const label = trackLabel(track);
+    if (byId("showSmoothed").checked && track.smt.x.length) smoothed.add(color, track.smt.x, track.smt.y, track.smt.z, label);
+    if (byId("showMeasurements").checked) {
+      for (let i_meas = 0; i_meas < track.meas.x.length; i_meas++) {
+        const [x, y, z] = [track.meas.x[i_meas], track.meas.y[i_meas], track.meas.z[i_meas]];
+        // "own" is known for tracks with a majority particle: 0 marks a measurement from another particle
+        const isForeign = track.own && !track.own[i_meas];
+        const batch = isForeign ? foreignMeasurements : measurements;
+        batch.x.push(x); batch.y.push(y); batch.z.push(z); batch.r.push(Math.hypot(x, y));
+        batch.color.push(color); batch.text.push(isForeign ? `${label}<br>measurement not from a hit of the majority particle` : label);
+      }
+    }
+    for (let i_meas = 0; i_meas < track.meas.x.length; i_meas++) extend(track.meas.x[i_meas], track.meas.y[i_meas], track.meas.z[i_meas]);
+  };
+  for (const part of selectedParts) {
+    const color = colorOf(part);
+    const label = partLabel(part);
+    const hits = part.hits;
+    for (let i_hit = 0; i_hit < hits.x.length; i_hit++) {
+      const [x, y, z] = [hits.x[i_hit], hits.y[i_hit], hits.z[i_hit]];
+      const r = Math.hypot(x, y);
+      const isFound = !!hits.found[i_hit];
+      const batch = part.g === 0 ? (isFound || !markMissed ? primaryHits : primaryMissed) : (isFound || !markMissed ? secondaryHits : secondaryMissed);
+      batch.x.push(x); batch.y.push(y); batch.z.push(z); batch.r.push(r); batch.color.push(color);
+      batch.text.push(`${label}<br>hit ${i_hit} of ${hits.x.length} (time order) · layer ${hits.layer[i_hit]} · ${isFound ? "on its track" : "<b>not on a track</b>"}<br>r ${r.toFixed(1)} mm · t ${hits.t[i_hit].toFixed(3)} ns · |p| ${fmtMomentum(hits.p[i_hit])}`);
+      extend(x, y, z);
+    }
+    if (byId("showHelix").checked && part.q && part.pt > 0) {
+      const h = helix(part, turns);
+      helices.add(color, h.xs, h.ys, h.zs, `${label} · helix R = ${h.radius.toFixed(0)} mm`);
+    }
+    for (const track of part.tracks) drawTrack(track, color);
+    if (part.g > 0) {
+      vertices.x.push(part.vx); vertices.y.push(part.vy); vertices.z.push(part.vz); vertices.r.push(Math.hypot(part.vx, part.vy));
+      vertices.color.push(color); vertices.text.push(`${label}<br>produced by ${PROCESS_NAMES[part.proc] ?? part.proc}`);
+    }
+    if (!familiesByEvent.has(part.ev)) familiesByEvent.set(part.ev, new Map());
+    if (!familiesByEvent.get(part.ev).has(part.fam)) familiesByEvent.get(part.ev).set(part.fam, color);
+  }
+  for (const id of state.selectedTracks) { const track = trackById.get(id); if (track) drawTrack(track, FAKE_COLOR); }
+  // secondaries without hits: their production vertex, when their family is drawn
+  for (const [ev, families] of familiesByEvent) {
+    for (const vertex of ev.vertices) {
+      const color = families.get(vertex.fam);
+      if (!color) continue;
+      vertices.x.push(vertex.vx); vertices.y.push(vertex.vy); vertices.z.push(vertex.vz); vertices.r.push(Math.hypot(vertex.vx, vertex.vy));
+      vertices.color.push(color);
+      vertices.text.push(`ev ${ev.id} · ${particleName(vertex.pdg)} without hits · |p| ${fmtMomentum(vertex.p)}<br>produced by ${PROCESS_NAMES[vertex.proc] ?? vertex.proc}`);
+    }
+  }
+
+  const is3D = state.view === "3d";
+  // scatter3d knows fewer symbols than the 2D traces
+  const SYMBOLS_3D = { star: "diamond", "x-open": "cross", "square-x-open": "diamond-open" };
+  const markerTrace = (batch, symbol, size, extra = {}) => {
+    if (!batch.x.length) return;
+    const hover = { text: batch.text, hovertemplate: "%{text}<extra></extra>", showlegend: false };
+    xy.push({ type: "scattergl", x: batch.x, y: batch.y, mode: "markers", marker: { color: batch.color, size, symbol, ...extra }, ...hover });
+    rz.push({ type: "scattergl", x: batch.z, y: batch.r, mode: "markers", marker: { color: batch.color, size, symbol, ...extra }, ...hover });
+    xyz.push({ type: "scatter3d", x: batch.x, y: batch.y, z: batch.z, mode: "markers", ...hover,
+               marker: { color: batch.color, size: size * 0.6, symbol: SYMBOLS_3D[symbol] || symbol, ...(symbol === "star" && { line: { color: "#000", width: 1 } }) } });
+  };
+  const lineTraces = (batches, width, dash, opacity) => {
+    for (const [color, batch] of batches.groups) {
+      const hover = { text: batch.text, hovertemplate: "%{text}<extra></extra>", showlegend: false };
+      // dashed lines are only drawn by the SVG scatter, not by scattergl
+      const type2D = dash === "solid" ? "scattergl" : "scatter";
+      xy.push({ type: type2D, x: batch.x, y: batch.y, mode: "lines", line: { color, width, dash }, opacity, ...hover });
+      rz.push({ type: type2D, x: batch.z, y: batch.r, mode: "lines", line: { color, width, dash }, opacity, ...hover });
+      xyz.push({ type: "scatter3d", x: batch.x, y: batch.y, z: batch.z, mode: "lines", line: { color, width: width * 2, dash }, opacity, ...hover });
+    }
+  };
+  lineTraces(helices, 1, "dash", 0.9);
+  lineTraces(smoothed, 2.5, "solid", 0.6);
+  markerTrace(secondaryHits, "x", 6);
+  markerTrace(secondaryMissed, "x-open", 8, { line: { width: 1.5 } });
+  markerTrace(primaryHits, "circle", 7);
+  markerTrace(primaryMissed, "circle-open", 8, { line: { width: 2 } });
+  markerTrace(measurements, "square-open", 11, { line: { width: 1.5 } });
+  markerTrace(foreignMeasurements, "square-x-open", 12, { line: { width: 1.5 } });
+  if (byId("showVertices").checked) markerTrace(vertices, "star", 11, { line: { color: "#000", width: 0.5 } });
+
+  // the focused particle on top: enlarged hits with an outline
+  if (focus && state.selected.has(focus.id)) {
+    const outline = cssVar("--text");
+    const hits = focus.hits;
+    const rs = rOf(hits.x, hits.y);
+    const marker = { color: colorOf(focus), size: 12, symbol: focus.g === 0 ? "circle" : "x", line: { color: outline, width: 2 }, opacity: 0.6 };
+    const hover = { hoverinfo: "skip", showlegend: false };
+    xy.push({ type: "scattergl", x: hits.x, y: hits.y, mode: "markers", marker, ...hover });
+    rz.push({ type: "scattergl", x: hits.z, y: rs, mode: "markers", marker, ...hover });
+    xyz.push({ type: "scatter3d", x: hits.x, y: hits.y, z: hits.z, mode: "markers", marker: { ...marker, size: 6 }, ...hover });
+  }
+
+  const text = cssVar("--text"), grid = cssVar("--plot-grid"), bg = cssVar("--bg");
+  const axis = (title) => ({ title: { text: title }, gridcolor: grid, zerolinecolor: grid, color: text });
+  // zoom to the selection; a new selection resets the view, everything else keeps the user's zoom
+  const base = { paper_bgcolor: bg, plot_bgcolor: bg, font: { color: text, size: 12 }, margin: { l: 55, r: 15, t: 35, b: 45 },
+                 hovermode: "closest", uirevision: state.revision };
+  const hasSpan = span.r > 0;
+  const rRange = hasSpan ? 1.15 * span.r : undefined;
+  const zPad = hasSpan ? Math.max(20, 0.1 * (span.zMax - span.zMin)) : 0;
+  if (is3D) {
+    // layers: only what lies in the viewed region, so the scene stays zoomed on the selection
+    const zLo = hasSpan ? span.zMin - zPad : -Infinity, zHi = hasSpan ? span.zMax + zPad : Infinity;
+    const rLim = hasSpan ? rRange : Infinity;
+    const layers3D = [];
+    for (const layer of DATA.layers) {
+      if (!state.layersOn.has(layer.id)) continue;
+      let wire = null;
+      if (layer.kind === "cylinder") {
+        const zMin = Math.max(layer.zMin, zLo), zMax = Math.min(layer.zMax, zHi);
+        if (layer.r <= rLim && zMax > zMin) wire = cylinderWire(layer.r, zMin, zMax);
+      } else if (layer.z >= zLo && layer.z <= zHi && layer.rMin < rLim) {
+        wire = discWire(layer.rMin, Math.min(layer.rMax, rLim), layer.z);
+      }
+      if (wire) layers3D.push({ type: "scatter3d", ...wire, mode: "lines", name: layer.name, hoverinfo: "name", showlegend: false,
+                                line: { color: layer.sensitive ? "rgba(110,120,135,0.9)" : "rgba(196,150,90,0.9)", width: layer.sensitive ? 2 : 2.5 } });
+    }
+    const axis3D = (title, range) => ({ title: { text: title }, gridcolor: grid, zerolinecolor: grid, color: text, backgroundcolor: bg, showbackground: false, ...(range && { range }) });
+    const zSpan = hasSpan ? span.zMax - span.zMin + 2 * zPad : 1;
+    const zRatio = hasSpan ? Math.min(4, Math.max(0.25, zSpan / (2 * rRange))) : 1;
+    Plotly.react("plot3D", [...layers3D, ...xyz], {
+      paper_bgcolor: bg, font: { color: text, size: 12 }, margin: { l: 0, r: 0, t: 30, b: 0 },
+      title: { text: "3D (drag to rotate, right-drag to pan)", font: { size: 13 } },
+      scene: { uirevision: state.revision, aspectmode: "manual", aspectratio: { x: 1, y: 1, z: zRatio },
+               xaxis: axis3D("x (mm)", hasSpan && [-rRange, rRange]), yaxis: axis3D("y (mm)", hasSpan && [-rRange, rRange]),
+               zaxis: axis3D("z (mm)", hasSpan && [zLo, zHi]), camera: { up: { x: 0, y: 1, z: 0 }, eye: { x: 1.4, y: 0.9, z: 1.6 } } },
+      uirevision: state.revision }, PLOT_CONFIG);
+  } else {
+    Plotly.react("plotXY", xy, { ...base, title: { text: "x – y", font: { size: 13 } },
+      xaxis: { ...axis("x (mm)"), ...(hasSpan && { range: [-rRange, rRange] }) },
+      yaxis: { ...axis("y (mm)"), scaleanchor: "x", scaleratio: 1, ...(hasSpan && { range: [-rRange, rRange] }) } },
+      PLOT_CONFIG);
+    Plotly.react("plotRZ", rz, { ...base, title: { text: "r – z", font: { size: 13 } },
+      xaxis: { ...axis("z (mm)"), ...(hasSpan && { range: [span.zMin - zPad, span.zMax + zPad] }) },
+      yaxis: { ...axis("r (mm)"), ...(hasSpan ? { range: [0, rRange] } : { rangemode: "tozero" }) } },
+      PLOT_CONFIG);
+  }
+
+  const nSelected = selectedParts.length + state.selectedTracks.size;
+  byId("treeOpen").disabled = !focus && !selectedParts.length;
+  byId("status").innerHTML = nSelected
+    ? `${selectedParts.length} particle(s)${state.selectedTracks.size ? ` and ${state.selectedTracks.size} fake track(s)` : ""} drawn${state.selected.size >= MAX_DRAWN ? ` (limit ${MAX_DRAWN})` : ""}. ● primary hits · × secondary hits · ○ hit no track picked up · □ track measurement · ⊠ measurement from another particle · thick line: smoothed track · dashed: ideal helix · ★ production vertex (◆ in 3D).`
+    : "Select events or particles in the browser on the left.";
+  renderDetails(focus);
+}
+
+function renderDetails(part) {
+  if (!part) { byId("details").innerHTML = ""; return; }
+  const r = Math.hypot(part.vx, part.vy);
+  const ended = part.atRest ? "ended at p = 0" : `lost ${fmtMomentum(part.eloss)}`;
+  const helixText = part.q && part.pt > 0 ? ` · helix R ${helix(part, 0.25).radius.toFixed(0)} mm` : "";
+  const status = part.sel
+    ? `${DATA.hasSeedStatus ? (part.seed && part.seed.length ? `<span class="ok">seeded in iteration ${part.seed.join(", ")}</span>` : `<span class="bad">not seeded</span>`) + " · " : ""}${part.reco ? `<span class="ok">reconstructed</span>` : `<span class="bad">not reconstructed</span>`}`
+    : `<span class="note">not in the efficiency selection</span>`;
+  const nFound = part.hits.found.reduce((sum, flag) => sum + flag, 0);
+  const nForeign = part.tracks.reduce((sum, track) => sum + (track.own ? track.own.filter((flag) => !flag).length : 0), 0);
+  const foundText = part.tracks.length ? ` · tracks found ${nFound} of ${part.nHits} hits${nForeign ? `, plus ${nForeign} measurement(s) from other particles` : ""}` : "";
+  const tracks = part.tracks.length
+    ? part.tracks.map((track) => `track ${track.nr} (${TRACK_CLASSES[track.cls]}, ${track.nMeas} meas${track.pt ? `, pT ${fmtMomentum(track.pt)}` : ""})`).join(", ")
+    : "no track with this particle as majority";
+  byId("details").innerHTML = `<div class="title">${escapeHtml(particleName(part.pdg))} · ev ${part.ev.id} · barcode ${part.k} · gen ${part.g} (${escapeHtml(PROCESS_NAMES[part.proc] ?? part.proc)})</div>
+    <div>pT ${fmtMomentum(part.pt)} · η ${part.eta.toFixed(3)} · φ ${part.phi.toFixed(3)} · |p| ${fmtMomentum(part.p)} · T_kin ${fmtMomentum(part.tkin)} · ${ended}${helixText}</div>
+    <div>vertex r ${r.toFixed(2)} mm · z ${part.vz.toFixed(2)} mm · t ${part.vt.toFixed(3)} ns · ${part.nHits} hits${foundText}</div>
+    <div>${status} · ${tracks}</div>`;
+}
+
+// ---------- decay tree (family of the focused particle) ----------
+const PROCESS_COLORS = { 1: "#d0473b", 2: "#2f6fdb", 3: "#c99a12", 4: "#b23aa8", 5: "#8a919c", 6: "#16a3b8" };
+
+function buildTree(nodesList, familyPrimaryKey) {
+  // Every orphan descends from the family's primary; its missing ancestors are shown
+  // as one placeholder per missing generation, hanging under the primary.
+  const nodes = new Map(nodesList.map((part) => [part.key, { ...part, children: [] }]));
+  const roots = [...nodes.values()].filter((node) => node.generation === 0);
+  const placeholders = new Map();
+  for (const node of nodes.values()) {
+    if (node.generation === 0) continue;
+    if (node.parent && nodes.has(node.parent)) { nodes.get(node.parent).children.push(node); continue; }
+    const missingGeneration = node.generation - 1;
+    if (!placeholders.has(missingGeneration)) {
+      placeholders.set(missingGeneration, { key: `missing-${missingGeneration}`, missing: true, generation: missingGeneration, vt: node.vt, children: [] });
+    }
+    const placeholder = placeholders.get(missingGeneration);
+    placeholder.vt = Math.min(placeholder.vt, node.vt);
+    placeholder.children.push(node);
+  }
+  const anchor = nodes.get(familyPrimaryKey) || (roots.length === 1 ? roots[0] : null);
+  for (const placeholder of placeholders.values()) (anchor ? anchor.children : roots).push(placeholder);
+  for (const node of [...nodes.values(), ...placeholders.values()]) node.children.sort((a, b) => a.vt - b.vt);
+  return roots;
+}
+
+function treeSubject() {
+  const focus = state.focus ? partById.get(state.focus) : null;
+  if (focus) return focus;
+  const first = state.selected.values().next().value;
+  return first ? partById.get(first) : null;
+}
+function renderDecayTree() {
+  const scroll = byId("treeScroll");
+  const subject = treeSubject();
+  if (!subject || !subject.ev.tree) { scroll.innerHTML = "<p class=\"note\">Select or click a particle first.</p>"; return; }
+  const ev = subject.ev;
+  const family = ev.tree.filter((node) => node.key.startsWith(`${subject.fam}-`));
+  const primaryKey = `${subject.fam}-0-0`;
+  const primary = family.find((node) => node.key === primaryKey);
+  byId("treeTitle").textContent = `ev ${ev.id} · family of ${primary ? particleName(primary.pdg) : "primary"} ${subject.fam} · ${family.length} particles`
+    + (ev.treePruned ? " (large event: only particles with hits are listed)" : "");
+  const W = 250, H = 62, COL = 380, ROW = 74, PAD = 10;
+  const roots = buildTree(family, primaryKey);
+  let nextRow = 0, maxDepth = 0;
+  const placed = [];
+  const place = (node, depth) => {
+    node.depth = depth; maxDepth = Math.max(maxDepth, depth);
+    if (!node.children.length) node.row = nextRow++;
+    else { node.children.forEach((child) => place(child, depth + 1)); node.row = (node.children[0].row + node.children[node.children.length - 1].row) / 2; }
+    placed.push(node);
+  };
+  roots.forEach((root) => place(root, 0));
+  const width = PAD * 2 + maxDepth * COL + W, height = PAD * 2 + Math.max(1, nextRow) * ROW;
+  const pos = (node) => ({ x: PAD + node.depth * COL, y: PAD + node.row * ROW });
+  const parts = [];
+  for (const node of placed) {
+    for (const child of node.children) {
+      const a = pos(node), b = pos(child);
+      const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2, mid = (x1 + x2) / 2;
+      const color = PROCESS_COLORS[child.process] || "#8a919c";
+      const isUncertain = child.inferred || node.missing || child.missing;
+      parts.push(`<path class="tree-edge" d="M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}" stroke="${child.missing ? "#8a919c" : color}"${isUncertain ? ' stroke-dasharray="5 4"' : ""}/>`);
+      if (!child.missing) parts.push(`<text class="tree-edge-label" x="${x2 - 8}" y="${y2 - 6}" text-anchor="end">${escapeHtml(PROCESS_NAMES[child.process] ?? child.process)}</text>`);
+    }
+  }
+  const focusKey = state.focus ? partById.get(state.focus)?.k : null;
+  for (const node of placed) {
+    const { x, y } = pos(node);
+    if (node.missing) {
+      parts.push(`<g class="tree-node"><rect x="${x}" y="${y}" width="${W}" height="${H}" fill="var(--panel)" stroke-dasharray="4 3"/>
+        <text class="title" x="${x + 8}" y="${y + 18}">gen ${node.generation} ancestor not stored</text>
+        <text x="${x + 8}" y="${y + 34}">left no hits, so it was not written</text>
+        <text x="${x + 8}" y="${y + 48}">(keepParticlesWithoutHits = False)</text></g>`);
+      continue;
+    }
+    const fill = node.q > 0 ? "rgba(208,71,59,0.10)" : node.q < 0 ? "rgba(47,111,219,0.10)" : "rgba(138,145,156,0.10)";
+    const r = Math.hypot(node.vx, node.vy);
+    const ended = node.eloss >= 0.999 * node.tkin ? "ended at p = 0" : `lost ${(node.eloss * 1000).toFixed(1)} MeV`;
+    const isClickable = ev.byKey.has(node.key);
+    parts.push(`<g class="tree-node${isClickable ? " clickable" : ""}${node.key === focusKey ? " selected" : ""}" data-key="${node.key}">
+      <title>${escapeHtml(`${particleName(node.pdg)} (pdg ${node.pdg})\nbarcode ${node.key}\nproduced at (${node.vx}, ${node.vy}, ${node.vz}) mm, t = ${node.vt} ns\n|p| = ${(node.p * 1000).toFixed(2)} MeV, T_kin = ${(node.tkin * 1000).toFixed(2)} MeV, e_loss = ${(node.eloss * 1000).toFixed(2)} MeV\n${node.nHits} hits${node.inferred ? "\nparent inferred from geometry" : ""}`)}</title>
+      <rect x="${x}" y="${y}" width="${W}" height="${H}" fill="${fill}"/>
+      <text class="title" x="${x + 8}" y="${y + 17}">${escapeHtml(particleName(node.pdg))}  <tspan font-weight="400" fill="var(--muted)">gen ${node.generation} · ${node.nHits} hits</tspan></text>
+      <text x="${x + 8}" y="${y + 33}">|p| ${(node.p * 1000).toFixed(1)} MeV · T ${(node.tkin * 1000).toFixed(1)} MeV · ${ended}</text>
+      <text x="${x + 8}" y="${y + 49}">r ${r.toFixed(1)} mm · z ${node.vz.toFixed(1)} mm · t ${node.vt.toFixed(3)} ns</text></g>`);
+  }
+  scroll.innerHTML = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${parts.join("")}</svg>`;
+}
+
+byId("treeOpen").addEventListener("click", () => { byId("treeModal").hidden = false; renderDecayTree(); });
+byId("treeClose").addEventListener("click", () => { byId("treeModal").hidden = true; });
+byId("treeModal").addEventListener("click", (e) => { if (e.target.id === "treeModal") byId("treeModal").hidden = true; });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") byId("treeModal").hidden = true; });
+byId("treeScroll").addEventListener("click", (e) => {
+  const node = e.target.closest(".tree-node[data-key]");
+  const subject = treeSubject();
+  if (!node || !subject) return;
+  const part = subject.ev.byKey.get(node.dataset.key);
+  if (part) focusParticle(part);
+});
+
+refreshTree();
+// start with the first few events selected (at most INITIAL_DRAWN particles, a PbPb event has
+// tens of thousands) and the first one opened
+const INITIAL_DRAWN = 1000;
+for (const entry of view.slice(0, 3)) setSelected(entry.prim.concat(entry.sec).slice(0, INITIAL_DRAWN - state.selected.size), [], true);
+if (view.length) { state.open.add(`e${view[0].ev.id}`); state.open.add(`e${view[0].ev.id}p`); }
+renderTree();
+draw();
+</script>
+</body>
+</html>
