@@ -18,7 +18,8 @@ void geo_efficiency_plots(
   const bool onSTBC=false,
   const unsigned nMinHits=3,
   const float etaMin=-2.5,
-  const float etaMax=2.5
+  const float etaMax=2.5,
+  const float ptMin=0.5  // GeV; particles at or below are skipped
 )
 {
   const TString actso2_output_base = Utils::outputPathBase(onSTBC);
@@ -44,7 +45,7 @@ void geo_efficiency_plots(
 
   // Plot 4: 2D efficiency eta-pT (100 bins eta, etaMin–etaMax)
   auto* effEtaPt = new TEfficiency("effEtaPt", ";#eta;p_{T} (GeV/c);Efficiency",
-                                   100, etaMin, etaMax, 100, 0.5, 5.0);
+                                   100, etaMin, etaMax, 100, ptMin, 5.0);
 
   // --- Event loop over all input files ---
   unsigned nFillsTotal{0};
@@ -64,14 +65,14 @@ void geo_efficiency_plots(
     std::vector<float>* pt = nullptr;
     std::vector<int>* nhits = nullptr;
     std::vector<unsigned>* generation = nullptr;
-    std::vector<std::vector<unsigned int>>* matchedIdxs = nullptr;
+    std::vector<bool>* matched = nullptr;
 
     t->SetBranchAddress("eta",                &eta);
     t->SetBranchAddress("phi",                &phi);
     t->SetBranchAddress("pt",                 &pt);
     t->SetBranchAddress("number_of_hits",     &nhits);
     t->SetBranchAddress("generation",         &generation);
-    t->SetBranchAddress("matched_track_idxs", &matchedIdxs);
+    t->SetBranchAddress("matched",            &matched);
 
     Long64_t nEntries = t->GetEntries();
     for (Long64_t i = 0; i < nEntries; i++) {
@@ -80,9 +81,9 @@ void geo_efficiency_plots(
       for (unsigned i_part = 0; i_part < eta->size(); i_part++) {
         if (generation->at(i_part) != 0 ||
             nhits->at(i_part) < nMinHits ||
-            pt->at(i_part) <= 0.5) continue;
+            pt->at(i_part) <= ptMin) continue;
 
-        const bool wasReco = !matchedIdxs->at(i_part).empty();
+        const bool wasReco = matched->at(i_part);
         nFills++;
         nFillsTotal++;
 
