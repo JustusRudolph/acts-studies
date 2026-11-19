@@ -14,6 +14,8 @@ Reads (all optional except hits.root and particles_simulation.root):
     measurements_with_noise.root               the particles behind each measurement, to assign the seeds
     iter_N/trackstates*ambi_tracks_writer.root the measurements iteration N removes (cfg.tracking.writeAmbiTrackStates),
                                                for the "after iteration" filter
+    trajectories.root                          the Geant4 path of each particle (cfg.detSim.writeTrajectories,
+                                               RootSimParticleTrajectoryWriter)
     iter_N/propagation_steps_*ckf_tracks_*_steps.root   the CKF propagation steps (first/second pass, succeeded
                                                and failed, failed extrapolations; writePropagationSteps), under
                                                the seed they started from
@@ -266,6 +268,27 @@ def read_particles(path, event_ids, needed_of, with_decay_tree):
     for _ in bar:
         pass
     return particles_by_event
+
+
+def read_trajectories(path, event_ids, needed_of):
+    """Per (event, barcode): the Geant4 path of the particle (trajectories.root, one entry per
+    particle with step_x/y/z in mm, step_t in ns, step_p in GeV), for the particles in needed_of only;
+    None without the file."""
+    if not has_tree(path, "trajectories"):
+        return None
+    columns = ["event_id", *BARCODE_FIELDS, "step_x", "step_y", "step_z", "step_t", "step_p"]
+    data = filter_events(ROOT.RDataFrame("trajectories", str(path)), "event_id", event_ids).AsNumpy(columns)
+    trajectories = {}
+    n_rows = len(data["event_id"])
+    for i_row in progress(range(n_rows), n_rows, "trajectories"):
+        event_id = int(data["event_id"][i_row])
+        barcode = tuple(int(data[field][i_row]) for field in BARCODE_FIELDS)
+        if barcode not in needed_of.get(event_id, ()):
+            continue
+        trajectories[(event_id, barcode)] = {
+            **{axis: round_list(data[f"step_{axis}"][i_row]) for axis in "xyz"},
+            "t": round_list(data["step_t"][i_row], 4), "p": round_list(data["step_p"][i_row], 5)}
+    return trajectories
 
 
 def particle_dict(arrays, i_part):
@@ -529,6 +552,23 @@ def iteration_number(directory):
     return int(suffix) if suffix.isdigit() else None
 
 
+# --iterations N: only iter_0 .. iter_<N-1> are read (None: all)
+_n_iterations = None
+
+
+def iteration_dirs(run_dir):
+    """The iter_N directories of a run that are read (--iterations), in order."""
+    return sorted((path for path in run_dir.glob("iter_*")
+                   if path.is_dir() and iteration_number(path) is not None
+                   and (_n_iterations is None or iteration_number(path) < _n_iterations)),
+                  key=iteration_number)
+
+
+def iteration_files(run_dir, pattern):
+    """The files matching pattern in the iteration directories that are read, by iteration."""
+    return [path for directory in iteration_dirs(run_dir) for path in sorted(directory.glob(pattern))]
+
+
 def read_removed_measurements(run_dir, event_ids=None):
     """The measurements each iteration removes before the next: its ambiguity-resolved tracks'
     measurement states (MeasurementFilterAlgorithm skips outliers), in
@@ -537,18 +577,17 @@ def read_removed_measurements(run_dir, event_ids=None):
     Returns the iterations covered (0..n-1 without gaps) and per (event, barcode) the list of
     (iteration, layer, x, y, z) of the measurements of that particle; None without the files.
     """
-    iteration_dirs = sorted((path for path in run_dir.glob("iter_*") if iteration_number(path) is not None),
-                            key=iteration_number)
+    directories = iteration_dirs(run_dir)
     files = {iteration_number(path.parent): path
-             for path in run_dir.glob("iter_*/trackstates*ambi_tracks_writer.root") if has_tree(path, "trackstates")}
+             for path in iteration_files(run_dir, "trackstates*ambi_tracks_writer.root") if has_tree(path, "trackstates")}
     iterations = []
-    for directory in iteration_dirs:
+    for directory in directories:
         if iteration_number(directory) not in files:
             break
         iterations.append(iteration_number(directory))
     if not iterations:
         return None, None
-    if len(iterations) < len(iteration_dirs):
+    if len(iterations) < len(directories):
         print(f"no ambi trackstates for iteration {len(iterations)}: 'after iteration' only up to "
               f"{iterations[-1]}", file=sys.stderr)
     removed = defaultdict(list)
@@ -628,10 +667,8 @@ def read_matching(path, event_ids=None):
 
 def read_seed_matching(run_dir, event_ids=None):
     """Per (event, barcode): the seeding iterations whose seeds matched the particle (matchingdetails)."""
-    iteration_files = sorted(run_dir.glob("iter_*/*performance_seeding.root"),
-                             key=lambda path: int(path.parent.name.split("_")[1]))
     seeded_in = None
-    for path in iteration_files:
+    for path in iteration_files(run_dir, "*performance_seeding.root"):
         iteration = int(path.parent.name.split("_")[1])
         matched = read_matching(path, event_ids)
         if matched is None:
@@ -702,10 +739,8 @@ def read_propagations(run_dir, event_ids=None, max_steps=20000):
     props_of = defaultdict(lambda: defaultdict(list))
     n_unlinked = Counter()
     found_any = False
-    for directory in sorted(run_dir.glob("iter_*"), key=lambda path: iteration_number(path) or 0):
+    for directory in iteration_dirs(run_dir):
         iteration = iteration_number(directory)
-        if iteration is None:
-            continue
         step_files = {}
         for path in directory.glob("propagation_steps_*.root"):
             match = STEPS_FILE.match(path.name)
@@ -801,8 +836,8 @@ def read_propagations(run_dir, event_ids=None, max_steps=20000):
             add_propagations(kind, is_ok, data, links)
     if not found_any:
         return None
-    if n_unlinked:
-        print(f"CKF steps not linked to a seed: {dict(n_unlinked)}", file=sys.stderr)
+    if sum(n_unlinked.values()):
+        print(f"CKF steps not linked to a seed: {dict(+n_unlinked)}", file=sys.stderr)
     return {event_id: dict(props) for event_id, props in props_of.items()}
 
 
@@ -820,13 +855,13 @@ def seed_measurement_keys(run_dir, event_ids=None):
     """(event, measurement id) of the space points of all seeds (iter_N/seeds.root, writingMode "full",
     and the below-TOF seeds of iter_N/seed_segments_belowTOF.root)."""
     keys = set()
-    for path in run_dir.glob(f"iter_*/{SEGMENTS_FILE}"):
+    for path in iteration_files(run_dir, SEGMENTS_FILE):
         if not has_tree(path, "segments"):
             continue
         segments = read_segments(path, event_ids)
         for event_id, measurement_ids in zip(segments["event_nr"].tolist(), segments["measurement_id"]):
             keys.update((event_id, int(measurement_id)) for measurement_id in measurement_ids)
-    for path in run_dir.glob("iter_*/seeds.root"):
+    for path in iteration_files(run_dir, "seeds.root"):
         if not has_tree(path, "seeds"):
             continue
         frame = ROOT.RDataFrame("seeds", str(path))
@@ -888,8 +923,7 @@ def read_seeds(run_dir, measurement_particles, event_ids=None, orphan_refs=None)
     """
     seeds_of = defaultdict(list)
     orphan_refs = orphan_refs or {}
-    seed_files = sorted((path for path in run_dir.glob("iter_*/seeds.root") if has_tree(path, "seeds")),
-                        key=lambda path: int(path.parent.name.split("_")[1]))
+    seed_files = [path for path in iteration_files(run_dir, "seeds.root") if has_tree(path, "seeds")]
     for path in seed_files:
         iteration = int(path.parent.name.split("_")[1])
         frame = ROOT.RDataFrame("seeds", str(path))
@@ -1088,7 +1122,7 @@ def decay_tree_particles(particles, event_hits):
 
 
 def build_events(particles_by_event, hits, tracks, seed_matching, reco_matching, seeds=None, with_decay_tree=True,
-                 removed=None, propagations=None):
+                 removed=None, propagations=None, trajectories=None):
     """One entry per event: the particles with hits (or in the efficiency selection) with their
     hits and status, the tracks, the production vertices of no-hit secondaries and the decay tree."""
     events = []
@@ -1146,6 +1180,8 @@ def build_events(particles_by_event, hits, tracks, seed_matching, reco_matching,
                 "seed": seed_matching.get(match_key) if seed_matching is not None else None,
                 "reco": reco_matching.get(match_key) if reco_matching is not None else None,
                 "seeds": seeds.get(match_key, []) if seeds is not None else [],
+                # the Geant4 path (trajectories.root), absent without the file
+                **({"traj": trajectories[match_key]} if trajectories and match_key in trajectories else {}),
                 "nHits": len(particle_hits.get("x", [])),
                 "hits": {
                     "x": round_list(particle_hits.get("x", [])), "y": round_list(particle_hits.get("y", [])),
@@ -1209,7 +1245,7 @@ def read_reconstruction(run_dir, sim_dir=None, event_ids=None, max_steps=20000):
               file=sys.stderr)
     # the measurements only serve to assign the seeds' space points
     measurement_particles = None
-    if any(has_tree(path, "seeds") for path in run_dir.glob("iter_*/seeds.root")):
+    if any(has_tree(path, "seeds") for path in iteration_files(run_dir, "seeds.root")):
         wanted_keys = seed_measurement_keys(run_dir, event_ids)
         measurement_particles = read_measurement_particles(run_dir, event_ids, wanted_keys)
         if measurement_particles is None and sim_dir is not None:
@@ -1286,9 +1322,17 @@ def main():
     parser.add_argument("--reco-dir", "--reco_dir", "--reco-loc", "--reco_loc", type=Path, default=None,
                         help="directory with the reconstruction output (tracks, matching, seeds) of the "
                              "simulation in output_dir; default: output_dir itself")
+    parser.add_argument("--iterations", type=int, default=None,
+                        help="read only the first N tracking iterations (iter_0 .. iter_<N-1>), e.g. to leave out "
+                             "a bloated one; the merged tracks and reco status still cover all iterations")
     parser.add_argument("--max-propagation-steps", type=int, default=20000,
                         help="keep at most this many steps of a CKF propagation, the first and last half (0 = all)")
     args = parser.parse_args()
+    if args.iterations is not None:
+        if args.iterations < 1:
+            parser.error("--iterations: at least 1")
+        global _n_iterations
+        _n_iterations = args.iterations
     if args.sim_only and args.reco_dir:
         parser.error("--sim-only and --reco-dir exclude each other")
 
@@ -1336,8 +1380,10 @@ def main():
         for event_id, barcode in matching or {}:
             needed_of[event_id].add(barcode)
     particles_by_event = read_particles(particles_path, event_ids, needed_of, with_decay_tree=not args.no_decay_tree)
+    trajectories = read_trajectories(run_dir / "trajectories.root", event_ids, needed_of)
     events = build_events(particles_by_event, hits, tracks, seed_matching, reco_matching, seeds,
-                          with_decay_tree=not args.no_decay_tree, removed=removed, propagations=propagations)
+                          with_decay_tree=not args.no_decay_tree, removed=removed, propagations=propagations,
+                          trajectories=trajectories)
     if args.geometry:
         geom_dir = args.geometry if args.geometry.is_dir() else args.geometry.parent
         layers = build_geometry_layers(geom_dir) + build_passive_layers(geom_dir / "gen3_geometry_config.json")
@@ -1352,7 +1398,8 @@ def main():
                "events": events,
                "hasSeedStatus": seed_matching is not None, "hasRecoStatus": reco_matching is not None,
                "hasSeeds": seeds is not None, "simOnly": args.sim_only,
-               "iterations": iterations or [], "hasSteps": propagations is not None}
+               "iterations": iterations or [], "hasSteps": propagations is not None,
+               "hasTrajectories": trajectories is not None}
     template = (Path(__file__).parent / "event_display_template.html").read_text()
     html = template.replace("/*__EVENT_DATA__*/null", json.dumps(payload, separators=(",", ":")))
 

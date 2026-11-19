@@ -171,7 +171,8 @@
       </select>
     </div>
     <label class="opt status-only"><input type="checkbox" id="showMissed" checked> Open markers: hits that no track of the particle picked up</label>
-    <label class="opt"><input type="checkbox" id="showVertices" checked> Production vertices of secondaries</label>
+    <label class="opt" id="trajectoryOption"><input type="checkbox" id="showTrajectories" checked> Geant4 trajectory (trajectories.root)</label>
+    <label class="opt"><input type="checkbox" id="showVertices"> Production vertices of secondaries</label>
     <label class="opt"><input type="checkbox" id="showHitMomenta"> Momentum direction at the hits (entering the sensor)</label>
     <label class="opt" style="padding-left: 22px;">arrow length (mm) <input type="number" id="hitArrowLength" value="20" min="1" max="500" step="1" style="width: 60px;"></label>
     <label class="opt status-only"><input type="checkbox" id="showMeasurements" checked> Track measurements</label>
@@ -837,7 +838,8 @@ document.querySelectorAll("[data-layers]").forEach((button) => button.addEventLi
   }
   draw();
 }));
-for (const id of ["showMissed", "showVertices", "showHitMomenta", "hitArrowLength", "showMeasurements", "showSmoothed", "showSeeds", "seedIteration", "showBelowTof"]) byId(id).addEventListener("change", draw);
+if (!DATA.hasTrajectories) byId("trajectoryOption").style.display = "none";
+for (const id of ["showTrajectories", "showMissed", "showVertices", "showHitMomenta", "hitArrowLength", "showMeasurements", "showSmoothed", "showSeeds", "seedIteration", "showBelowTof"]) byId(id).addEventListener("change", draw);
 // seeds: one entry per iteration that has any, hidden without seeds.root
 {
   const iterations = new Set();
@@ -955,7 +957,7 @@ function lineBatches() {
       const batch = groups.get(color);
       for (let i_point = 0; i_point < xs.length; i_point++) {
         batch.x.push(xs[i_point]); batch.y.push(ys[i_point]); batch.z.push(zs[i_point]);
-        batch.r.push(Math.hypot(xs[i_point], ys[i_point])); batch.text.push(text);
+        batch.r.push(Math.hypot(xs[i_point], ys[i_point])); batch.text.push(Array.isArray(text) ? text[i_point] : text);
       }
       batch.x.push(null); batch.y.push(null); batch.z.push(null); batch.r.push(null); batch.text.push(null);
     },
@@ -1007,7 +1009,8 @@ function draw() {
   const showArrows = byId("showHitMomenta").checked;
   const measurements = pointBatch(), foreignMeasurements = pointBatch(), vertices = pointBatch();
   const markMissed = !SIM_ONLY && byId("showMissed").checked;
-  const smoothed = lineBatches(), seedLines = lineBatches();
+  const smoothed = lineBatches(), seedLines = lineBatches(), trajectoryLines = lineBatches();
+  const showTrajectories = DATA.hasTrajectories && byId("showTrajectories").checked;
   const seedPoints = pointBatch(), foreignSeedPoints = pointBatch();
   const familiesByEvent = new Map();
   const drawSeed = (seed, color, label) => {
@@ -1058,6 +1061,13 @@ function draw() {
       }
       batch.text.push(`${label}<br>hit ${i_hit} of ${hits.x.length} (time order) · layer ${hits.layer[i_hit]}${SIM_ONLY ? "" : isFound ? " · on its track" : " · <b>not on a track</b>"}${removedText}<br>r ${r.toFixed(1)} mm · t ${hits.t[i_hit].toFixed(3)} ns · |p| ${fmtMomentum(hits.p[i_hit])}`);
       extend(x, y, z);
+    }
+    if (showTrajectories && part.traj && part.traj.x.length > 1) {
+      // the path Geant4 simulated (points ≥ trajectoryMinStepLength apart), with time and |p| at each point
+      const traj = part.traj;
+      trajectoryLines.add(color, traj.x, traj.y, traj.z, traj.x.map((x, i_point) =>
+        `${label}<br>Geant4 path, point ${i_point + 1} of ${traj.x.length}<br>r ${Math.hypot(x, traj.y[i_point]).toFixed(1)} mm · z ${traj.z[i_point].toFixed(1)} mm`
+        + ` · t ${traj.t[i_point].toFixed(3)} ns · |p| ${fmtMomentum(traj.p[i_point])}`));
     }
     for (const seed of seedsShown(part)) drawSeed(seed, color, label);
     if (part.g > 0) {
@@ -1130,6 +1140,7 @@ function draw() {
       xyz.push({ type: "scatter3d", x: batch.x, y: batch.y, z: batch.z, mode: "lines", line: { color, width: width * 2, dash }, opacity, ...hover });
     }
   };
+  lineTraces(trajectoryLines, 1.5, "dash", 0.8);
   lineTraces(smoothed, 2.5, "solid", 0.6);
   lineTraces(seedLines, 1.5, "dot", 0.9);
   for (const { color, line } of propTraces) {
@@ -1277,7 +1288,7 @@ function draw() {
   const nSelected = selectedParts.length + state.selectedTracks.size + state.selectedSeeds.size + state.selectedProps.size;
   byId("treeOpen").disabled = !focus && !selectedParts.length;
   byId("status").innerHTML = nSelected
-    ? `${selectedParts.length} particle(s)${state.selectedTracks.size ? `, ${state.selectedTracks.size} track(s)` : ""}${state.selectedSeeds.size ? `, ${state.selectedSeeds.size} seed(s)` : ""}${state.selectedProps.size ? `, ${state.selectedProps.size} CKF propagation(s)` : ""} drawn${state.selected.size >= MAX_DRAWN ? ` (limit ${MAX_DRAWN})` : ""}. ● primary hits · × secondary hits${SIM_ONLY ? "" : " · ○ hit no track picked up · □ track measurement · ⊠ measurement from another particle · thick line: smoothed track"}${DATA.hasSeeds ? " · dotted with △: seed (▽ space point from another particle or noise)" : ""}${state.selectedProps.size ? " · green/red line: CKF propagation succeeded/failed (◆ ticked step)" : ""} · ★ production vertex (◆ in 3D)${byId("showHitMomenta").checked ? " · → momentum entering the sensor" : ""}.`
+    ? `${selectedParts.length} particle(s)${state.selectedTracks.size ? `, ${state.selectedTracks.size} track(s)` : ""}${state.selectedSeeds.size ? `, ${state.selectedSeeds.size} seed(s)` : ""}${state.selectedProps.size ? `, ${state.selectedProps.size} CKF propagation(s)` : ""} drawn${state.selected.size >= MAX_DRAWN ? ` (limit ${MAX_DRAWN})` : ""}. ● primary hits · × secondary hits${SIM_ONLY ? "" : " · ○ hit no track picked up · □ track measurement · ⊠ measurement from another particle · thick line: smoothed track"}${showTrajectories ? " · dashed: Geant4 trajectory" : ""}${DATA.hasSeeds ? " · dotted with △: seed (▽ space point from another particle or noise)" : ""}${state.selectedProps.size ? " · green/red line: CKF propagation succeeded/failed (◆ ticked step)" : ""}${byId("showVertices").checked ? " · ★ production vertex (◆ in 3D)" : ""}${byId("showHitMomenta").checked ? " · → momentum entering the sensor" : ""}.`
     : "Select events or particles in the browser on the left.";
   renderDetails(focus);
 }
