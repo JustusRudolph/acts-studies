@@ -3,3 +3,4 @@
 */histos/
 */figures/
 *.vscode/
+*__pycache__/
