@@ -9,17 +9,21 @@
   :root {
     --bg: #ffffff; --panel: #f5f6f8; --text: #1d1f23; --muted: #6a6f78; --border: #d9dce1;
     --accent: #2f6fdb; --plot-grid: #e6e8ec; --hover: #e9edf3;
+    --ok: #2a9d55; --warn: #b08900; --bad: #d0473b;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #15171b; --panel: #1e2126; --text: #e6e8eb; --muted: #9aa0a9; --border: #343840;
       --accent: #6a9cf0; --plot-grid: #2a2e35; --hover: #262a31;
+      --ok: #4cc27a; --warn: #e3c04a; --bad: #ef6b5f;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .app { display: grid; grid-template-columns: 400px 1fr; height: 100vh; }
+  .app { display: grid; grid-template-columns: var(--sidebar-width, 400px) 6px 1fr; height: 100vh; }
+  .resizer { cursor: col-resize; background: var(--border); opacity: 0.5; touch-action: none; }
+  .resizer:hover, .resizer.dragging { background: var(--accent); opacity: 1; }
   aside { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 12px 14px; }
   main { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 8px; padding: 10px; min-width: 0; }
   main header { grid-column: 1 / -1; color: var(--muted); display: flex; gap: 12px; align-items: flex-start; }
@@ -59,7 +63,7 @@
   .range .track { position: absolute; left: 0; right: 0; top: 9px; height: 3px; border-radius: 2px; background: var(--border); }
   select, input[type=number], input[type=search] { background: var(--bg); color: var(--text);
       border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; font: inherit; }
-  input[type=search] { width: 100%; }
+  input[type=search], #eventSelect { width: 100%; }
   .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; }
   .grid2 select, .grid2 input { width: 100%; }
   .browser { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
@@ -73,7 +77,7 @@
   .row .name { cursor: pointer; }
   .row .meta { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
   .row code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
-  .row.depth1 { padding-left: 22px; } .row.depth2 { padding-left: 40px; }
+  .row.depth1 { padding-left: 22px; } .row.depth2 { padding-left: 40px; } .row.depth3 { padding-left: 76px; }
   .row.event .name { font-weight: 600; }
   .row.more { color: var(--accent); cursor: pointer; padding-left: 58px; }
   .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
@@ -83,10 +87,12 @@
   button:hover { border-color: var(--accent); }
   button:disabled { opacity: 0.5; cursor: default; }
   .opt { display: block; margin: 2px 0; }
-  .ok { color: #2a9d55; } .warn { color: #c77a12; } .bad { color: #d0473b; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .row .name.ok, .row .name.warn, .row .name.bad { font-weight: 600; }
   .note { color: var(--muted); font-size: 12px; }
   @media (max-width: 900px) {
     .app { grid-template-columns: 1fr; height: auto; }
+    .resizer { display: none; }
     aside { border-right: none; border-bottom: 1px solid var(--border); }
     main { grid-template-columns: 1fr; }
   }
@@ -107,8 +113,8 @@
         <option value="primary">primaries</option>
         <option value="secondary">secondaries</option>
       </select>
-      <span>Status</span>
-      <select id="statusFilter">
+      <span class="status-only">Status</span>
+      <select id="statusFilter" class="status-only">
         <option value="all">all</option>
         <option value="sel">in efficiency selection</option>
         <option value="reco">reconstructed</option>
@@ -129,6 +135,10 @@
         <option value="rest">at rest (e_loss = T_kin)</option>
         <option value="moving">with momentum left</option>
       </select>
+      <span class="iter-only">After iteration</span>
+      <select id="iterFilter" class="iter-only" title="Only the hits whose measurement no track of iterations 0 … N took, as the next iteration sees them; only the particles with such hits are listed">
+        <option value="">– (all hits)</option>
+      </select>
       <span>Species / ID</span>
       <input type="search" id="speciesSearch" placeholder="π⁺, e, 211, #14533, 1-0-14533 …">
     </div>
@@ -137,7 +147,7 @@
     <div class="browser">
       <div class="browser-head">
         <div class="summary" id="treeSummary"></div>
-        <input type="search" id="eventSearch" placeholder="Event id…">
+        <select id="eventSelect" title="Show and draw a single event"><option value="">All events</option></select>
         <div class="buttons">
           <button id="selectFirst">First 10 events</button>
           <button id="selectShown">All shown</button>
@@ -148,7 +158,8 @@
       <div id="tree"></div>
     </div>
     <p class="note">The checkboxes of an event or folder select the particles in it that pass the filters. Click a particle's name to inspect it.
-      Efficiencies count the particles in the efficiency selection (the matching details).</p>
+      <span class="status-only">▸ next to a particle lists the tracks and seeds (≥ 2 of 3 space points from it; ↓TOF: below-TOF seed) with it as majority particle; they are drawn only when ticked.</span>
+      <span class="status-only">Efficiencies count the particles in the efficiency selection (the matching details).</span></p>
 
     <h2>Draw</h2>
     <div class="grid2" style="margin-bottom: 6px;">
@@ -159,12 +170,15 @@
         <option value="event">event</option>
       </select>
     </div>
-    <label class="opt"><input type="checkbox" id="showMissed" checked> Open markers: hits that no track of the particle picked up</label>
+    <label class="opt status-only"><input type="checkbox" id="showMissed" checked> Open markers: hits that no track of the particle picked up</label>
     <label class="opt"><input type="checkbox" id="showVertices" checked> Production vertices of secondaries</label>
-    <label class="opt"><input type="checkbox" id="showHelix" checked> Ideal helix (uniform B, no energy loss)</label>
-    <label class="opt" style="padding-left: 22px;">turns <input type="number" id="helixTurns" value="1.5" min="0.25" max="10" step="0.25" style="width: 60px;"></label>
-    <label class="opt"><input type="checkbox" id="showMeasurements" checked> Track measurements</label>
-    <label class="opt"><input type="checkbox" id="showSmoothed" checked> Track smoothed states</label>
+    <label class="opt"><input type="checkbox" id="showHitMomenta"> Momentum direction at the hits (entering the sensor)</label>
+    <label class="opt" style="padding-left: 22px;">arrow length (mm) <input type="number" id="hitArrowLength" value="20" min="1" max="500" step="1" style="width: 60px;"></label>
+    <label class="opt status-only"><input type="checkbox" id="showMeasurements" checked> Track measurements</label>
+    <label class="opt status-only"><input type="checkbox" id="showSmoothed" checked> Track smoothed states</label>
+    <label class="opt" id="seedOptions"><input type="checkbox" id="showSeeds"> All seeds of the drawn particles, iteration
+      <select id="seedIteration"><option value="all">all</option></select></label>
+    <label class="opt" id="belowTofOption" style="padding-left: 22px;"><input type="checkbox" id="showBelowTof" checked> incl. below-TOF seeds (↓TOF)</label>
 
     <h2>Layers</h2>
     <div class="buttons" style="padding: 0 0 6px;">
@@ -174,9 +188,10 @@
       <button data-layers="passive:off">Passive off</button>
     </div>
     <div id="layerList"></div>
-    <p class="note">Sensitive layers are estimated from where the hits are; passive ones come from the Gen3 geometry config.</p>
+    <p class="note" id="layerSource"></p>
     <p class="note">Ctrl + scroll zooms a view; drag to pan or box-zoom (toolbar), double-click to reset.</p>
   </aside>
+  <div class="resizer" id="resizer" title="Drag to resize the sidebar"></div>
   <main>
     <header>
       <button id="viewToggle">3D view</button><button id="treeOpen">Decay tree</button>
@@ -212,39 +227,100 @@ const PROCESS_NAMES = { 0: "primary", 1: "decay", 2: "conversion", 3: "bremsstra
 const TRACK_CLASSES = { 0: "unknown", 1: "matched", 2: "duplicate", 3: "fake" };
 
 const byId = (id) => document.getElementById(id);
+// seeds: per iteration those of seeds.root (best quality first), then the below-TOF ones (seed_segments_belowTOF.root)
+const seedOrder = (a, b) => a.it - b.it || (a.belowTof || 0) - (b.belowTof || 0) || (b.q ?? 0) - (a.q ?? 0) || (a.nr ?? 0) - (b.nr ?? 0);
+// CKF propagations (iter_N/propagation_steps_*.root): FP first pass, SP second pass, EX extrapolation to the perigee
+const PROP_COLORS = { ok: "#2a9d55", failed: "#d0473b" };
+const PROP_NAMES = { FP: "first pass", SP: "second pass", EX: "extrapolation" };
+// RootPropagationStepsWriter "type": the smallest of the step size constraints
+const STEP_LIMITS = ["navigator", "accuracy", "actor", "user"];
+const STEPS_PER_PAGE = 50;
+const propColor = (prop) => (prop.ok ? PROP_COLORS.ok : PROP_COLORS.failed);
+// the step number in the propagation (0-based) of stored step i: a long one keeps only its first and last steps
+const stepNumber = (prop, i_step) => (prop.gap && i_step >= prop.gap[0] ? i_step + prop.gap[1] : i_step);
+const seedIndex = (seed) => (seed.ref ? seed.ref.split(":")[1] : null);
+const seedOwn = (seed) => `${seed.own.reduce((sum, flag) => sum + flag, 0)}/${seed.own.length}`;
+// quality and z_vertex for seeds.root seeds; below-TOF seeds have their pairing instead
+function seedInfo(seed) {
+  if (!seed.belowTof) return `quality ${seed.q} · z_vertex ${seed.zv} mm`;
+  const pairing = seed.partner >= 0
+    ? `paired with segment #${seed.partner}${seed.partnerSame === 1 ? " (same majority particle)" : seed.partnerSame === 0 ? " (other majority particle)" : ""}`
+    : "unpaired";
+  return `below TOF · segment #${seed.nr} · ${pairing}`;
+}
 const events = DATA.events;
 const eventById = new Map(events.map((ev) => [ev.id, ev]));
 const partById = new Map();
 const trackById = new Map();
+const seedById = new Map();
+const propById = new Map();
 const state = {
   selected: new Set(),        // particle ids "event:barcode"
-  selectedTracks: new Set(),  // fake track ids "event#nr"
+  selectedTracks: new Set(),  // drawn track ids "event#nr"
+  selectedSeeds: new Set(),   // drawn seed ids "event:barcode~i" (a seed under each particle it has ≥ 2 of 3 space points from)
+  selectedProps: new Set(),   // drawn CKF propagations "event|seed ref|i"
+  allSteps: new Set(),        // propagations drawn with a marker at every step
+  selectedSteps: new Map(),   // propagation id -> Set of ticked (stored) step indices
+  stepPage: new Map(),        // propagation id -> first step shown in its step list
   focus: null,                // particle id
   open: new Set(),            // tree nodes: "e<id>", "e<id>p", "e<id>s", "e<id>f"
   rowLimit: new Map(),
   layersOn: new Set(),
-  revision: 0,                // bumped on selection changes, so a new selection re-zooms
+  revision: 0,                // bumped by the whole-view actions (event picker, First 10 events, Clear), which re-zoom
+  dragmode: "pan",            // of the 2D plots; kept across redraws and re-zooms
+  userRanges: {},             // per 2D plot: the axis ranges after the user's last zoom/pan, until the next re-zoom
 };
 
 // ---------- indexing ----------
+// sim-only (--sim-only): only simulated hits, no tracks, seeds or matching status
+const SIM_ONLY = !!DATA.simOnly;
+if (SIM_ONLY) document.querySelectorAll(".status-only").forEach((element) => { element.style.display = "none"; });
 const hasAnyStatus = DATA.hasSeedStatus || DATA.hasRecoStatus;
+// "after iteration N": hits.it is the iteration whose ambiguity-resolved tracks removed the hit's
+// measurement (-1: none did); needs iter_*/trackstates*ambi_tracks_writer.root
+const ITERATIONS = SIM_ONLY ? [] : (DATA.iterations || []);
+if (!ITERATIONS.length) document.querySelectorAll(".iter-only").forEach((element) => { element.style.display = "none"; });
+for (const iteration of ITERATIONS) byId("iterFilter").add(new Option(`${iteration}${iteration === ITERATIONS[ITERATIONS.length - 1] ? " (left over)" : ""}`, `${iteration}`));
+function afterIteration() { const value = byId("iterFilter").value; return value === "" ? null : +value; }
+function isHitLeft(hits, i_hit, after) { return after === null || !hits.it || hits.it[i_hit] < 0 || hits.it[i_hit] > after; }
+function hitsLeft(part, after) {
+  if (after === null || !part.hits.it) return part.nHits;
+  let count = 0;
+  for (const iteration of part.hits.it) if (iteration < 0 || iteration > after) count++;
+  return count;
+}
 let partIndex = 0;
 events.forEach((ev, i_event) => { ev.order = i_event; });
 for (const ev of events) {
   ev.byKey = new Map();
   for (const part of ev.parts) {
     part.ev = ev; part.id = `${ev.id}:${part.k}`; part.idx = partIndex++; part.tracks = [];
-    if (!hasAnyStatus) part.sel = part.g === 0;  // no matching details: count primaries
+    if (SIM_ONLY) part.sel = false;
+    else if (!hasAnyStatus) part.sel = part.g === 0;  // no matching details: count primaries
     ev.byKey.set(part.k, part); partById.set(part.id, part);
+    // seeds with this particle as majority (≥ 2 of 3 space points): by iteration, best quality first
+    part.seeds = [...(part.seeds || [])].sort(seedOrder);
+    part.seeds.forEach((seed, i_seed) => { seed.id = `${part.id}~${i_seed}`; seed.part = part; seedById.set(seed.id, seed); });
   }
+  // CKF propagations per seed ref ("iteration:index in event"), shared by the seed's rows under several particles
+  ev.props = ev.props || {};
+  for (const [ref, props] of Object.entries(ev.props)) {
+    props.forEach((prop, i_prop) => { prop.id = `${ev.id}|${ref}|${i_prop}`; prop.ev = ev; prop.ref = ref; propById.set(prop.id, prop); });
+  }
+  // seeds with CKF steps but no majority particle
+  ev.nseeds = [...(ev.nseeds || [])].sort(seedOrder);
+  ev.nseeds.forEach((seed, i_seed) => { seed.id = `${ev.id}:n~${i_seed}`; seed.part = null; seed.ev = ev; seedById.set(seed.id, seed); });
+  for (const part of ev.parts) for (const seed of part.seeds) seed.ev = ev;
+  for (const seed of [...ev.parts.flatMap((part) => part.seeds), ...ev.nseeds]) seed.props = (seed.ref && ev.props[seed.ref]) || [];
   ev.fakes = [];
   for (const track of ev.tracks) {
     track.ev = ev; track.id = `${ev.id}#${track.nr}`; trackById.set(track.id, track);
     const owner = track.key ? ev.byKey.get(track.key) : null;
     track.owner = owner || null;
-    if (owner && track.cls !== 3) owner.tracks.push(track); else ev.fakes.push(track);
+    // under its majority particle whatever the classification (a fake shows why the particle is not matched)
+    if (owner) owner.tracks.push(track); else ev.fakes.push(track);
   }
-  if (!DATA.hasRecoStatus) for (const part of ev.parts) part.reco = part.sel ? part.tracks.length > 0 : null;
+  if (!DATA.hasRecoStatus && !SIM_ONLY) for (const part of ev.parts) part.reco = part.sel ? part.tracks.length > 0 : null;
 }
 function statusOf(part) {
   if (!part.sel) return "unsel";
@@ -271,7 +347,15 @@ function seedText(part) {
   if (!DATA.hasSeedStatus || !part.sel) return "";
   return part.seed && part.seed.length ? `<span class="ok">seed it ${part.seed.join(",")}</span>` : `<span class="bad">no seed</span>`;
 }
+// name colour: green seeded and reconstructed, yellow only one of the two, red neither
+function statusClass(part) {
+  if (!part.sel) return "";
+  const isSeeded = !!(part.seed && part.seed.length);
+  if (!DATA.hasSeedStatus) return part.reco ? "ok" : "bad";
+  return isSeeded && part.reco ? "ok" : isSeeded || part.reco ? "warn" : "bad";
+}
 function recoText(part) {
+  if (SIM_ONLY) return "";
   if (!part.sel) return `<span class="note">not in eff. selection</span>`;
   return part.reco ? `<span class="ok">reco</span>` : `<span class="bad">not reco</span>`;
 }
@@ -279,14 +363,20 @@ function recoText(part) {
 // ---------- header ----------
 const nParts = events.reduce((sum, ev) => sum + ev.parts.length, 0);
 byId("sample").textContent = `${DATA.sample} · ${events.length} events · ${nParts} particles with hits · B = ${DATA.bField} T`;
+if (SIM_ONLY) byId("colorMode").querySelector("[value=status]").remove();
 if (!DATA.hasSeedStatus) for (const value of ["seeded", "noseed", "seedNoReco"]) byId("statusFilter").querySelector(`[value=${value}]`).remove();
 if (events.every((ev) => !ev.tree)) byId("treeOpen").style.display = "none";  // made with --no-decay-tree
 
 // ---------- range filters ----------
 function extentOf(key) {
   let lo = Infinity, hi = -Infinity;
-  for (const ev of events) for (const part of ev.parts) { lo = Math.min(lo, part[key]); hi = Math.max(hi, part[key]); }
-  return [lo, hi];
+  // finite values only: pT = 0 gives η = ±∞ (or NaN at p = 0); the slider ends mean "no limit", so they still pass
+  for (const ev of events) for (const part of ev.parts) {
+    const value = part[key];
+    if (!Number.isFinite(value)) continue;
+    lo = Math.min(lo, value); hi = Math.max(hi, value);
+  }
+  return Number.isFinite(lo) ? [lo, hi] : [0, 0];
 }
 function niceStep(span) { const raw = span / 200; const pow = 10 ** Math.floor(Math.log10(raw || 1)); return Math.max(pow, raw - (raw % pow)); }
 const ptExtent = extentOf("pt");
@@ -317,7 +407,8 @@ for (const def of filterDefs) {
   const sync = (moved) => {
     if (+lowInput.value > +highInput.value) { if (moved === lowInput) highInput.value = lowInput.value; else lowInput.value = highInput.value; }
     // the ends of the sliders mean "no limit", so rounding never drops a particle at the edge
-    filters[def.key] = [+lowInput.value <= lo ? -Infinity : +lowInput.value, +highInput.value >= hi ? Infinity : +highInput.value];
+    // half a step of tolerance: the browser rounds the value to the step grid (5.1000000000000005 -> 5.1)
+    filters[def.key] = [+lowInput.value <= lo + step / 2 ? -Infinity : +lowInput.value, +highInput.value >= hi - step / 2 ? Infinity : +highInput.value];
     readout.textContent = `${def.format(+lowInput.value)} – ${def.format(+highInput.value)}`;
   };
   for (const input of [lowInput, highInput]) input.addEventListener("input", () => { sync(input); scheduleRefresh(); });
@@ -330,7 +421,20 @@ function scheduleRefresh() {
   requestAnimationFrame(() => { refreshPending = false; refreshTree(); });
 }
 for (const id of ["typeFilter", "statusFilter", "chargeFilter", "restFilter"]) byId(id).addEventListener("change", refreshTree);
-for (const id of ["speciesSearch", "eventSearch"]) byId(id).addEventListener("input", scheduleRefresh);
+byId("iterFilter").addEventListener("change", () => { refreshTree(); draw(); renderDetails(state.focus ? partById.get(state.focus) : null); });
+byId("speciesSearch").addEventListener("input", scheduleRefresh);
+
+// single-event picker: restricts the browser to one event and draws its particles that pass the filters
+const eventSelect = byId("eventSelect");
+eventSelect.insertAdjacentHTML("beforeend", events.map((ev) =>
+  `<option value="${ev.id}">ev ${ev.id} · ${ev.parts.length} particles</option>`).join(""));
+eventSelect.addEventListener("change", () => {
+  refreshTree();
+  if (eventSelect.value === "") return;
+  state.selected.clear(); state.selectedTracks.clear(); state.selectedSeeds.clear(); clearProps(); state.focus = null; state.revision++;
+  for (const entry of view) { setSelected(entry.prim.concat(entry.sec), [], true); state.open.add(`e${entry.ev.id}`); state.open.add(`e${entry.ev.id}p`); }
+  renderTree(); draw();
+});
 
 function speciesMatcher() {
   const query = byId("speciesSearch").value.trim().toLowerCase();
@@ -347,7 +451,9 @@ function makeFilter() {
   const type = byId("typeFilter").value, status = byId("statusFilter").value;
   const charge = byId("chargeFilter").value, rest = byId("restFilter").value;
   const species = speciesMatcher();
+  const after = afterIteration();
   return (part) => {
+    if (after !== null && !hitsLeft(part, after)) return false;
     for (const def of filterDefs) {
       const [lo, hi] = filters[def.key];
       const value = def.log ? Math.log10(Math.max(part[def.key], 1e-4)) : part[def.key];
@@ -375,17 +481,18 @@ function makeFilter() {
 let view = [];  // per shown event: { ev, prim, sec, fakes }
 function refreshTree() {
   const passes = makeFilter();
-  const search = byId("eventSearch").value.trim();
+  const chosenEvent = byId("eventSelect").value;
   const showFakes = byId("statusFilter").value === "all" && byId("typeFilter").value === "all" && !byId("speciesSearch").value.trim();
   view = [];
   for (const ev of events) {
-    if (search && !String(ev.id).startsWith(search)) continue;
+    if (chosenEvent !== "" && String(ev.id) !== chosenEvent) continue;
     const prim = [], sec = [];
     for (const part of ev.parts) if (passes(part)) (part.g === 0 ? prim : sec).push(part);
     const fakes = showFakes ? ev.fakes : [];
-    if (!prim.length && !sec.length) continue;
+    const nseeds = showFakes ? ev.nseeds : [];
+    if (!prim.length && !sec.length && !nseeds.length) continue;
     prim.sort((a, b) => b.pt - a.pt); sec.sort((a, b) => b.pt - a.pt);
-    view.push({ ev, prim, sec, fakes });
+    view.push({ ev, prim, sec, fakes, nseeds });
   }
   renderTree();
 }
@@ -400,6 +507,10 @@ function efficiencyText(parts) {
   const seed = DATA.hasSeedStatus ? `seed ${nSeeded}/${nSel}${pct(nSeeded)} · ` : "";
   return `${seed}reco ${nReco}/${nSel}${pct(nReco)}`;
 }
+function seedCheckState(seeds) {
+  const count = seeds.filter((seed) => state.selectedSeeds.has(seed.id)).length;
+  return count === 0 ? "" : count === seeds.length ? "checked" : "data-indet";
+}
 function checkState(parts, tracks = []) {
   let count = 0;
   for (const part of parts) if (state.selected.has(part.id)) count++;
@@ -413,29 +524,113 @@ function colorOf(part) {
   if (mode === "event") return PALETTE[part.ev.order % PALETTE.length];
   return PALETTE[part.idx % PALETTE.length];
 }
+// tracks take their majority particle's colour; those without one are grey
+function trackColor(track) { return track.owner ? colorOf(track.owner) : FAKE_COLOR; }
+const TRACK_CLASS_STYLE = { 1: "ok", 2: "warn", 3: "bad" };
 const plainText = (htmlText) => htmlText.replace(/<[^>]+>/g, "").replace(/"/g, "&quot;");
 function particleRow(part) {
   const isSelected = state.selected.has(part.id);
   const swatch = isSelected ? `background:${colorOf(part)}` : "background:transparent";
   const generation = part.g ? ` · gen ${part.g} ${escapeHtml(PROCESS_NAMES[part.proc] ?? "")}` : "";
-  const seed = seedText(part);
-  return `<div class="row depth2${state.focus === part.id ? " focus" : ""}" data-part="${part.id}">
+  const nTracks = part.tracks.length;
+  const nTracksOn = part.tracks.filter((track) => state.selectedTracks.has(track.id)).length;
+  const tracksText = nTracks ? `${nTracks} track${nTracks > 1 ? "s" : ""}${nTracksOn ? ` (${nTracksOn} drawn)` : ""}` : "";
+  const nSeeds = part.seeds.length;
+  const nSeedsOn = part.seeds.filter((seed) => state.selectedSeeds.has(seed.id)).length;
+  const seedsText = nSeeds ? `${nSeeds} seed${nSeeds > 1 ? "s" : ""}${nSeedsOn ? ` (${nSeedsOn} drawn)` : ""}` : "";
+  const after = afterIteration();
+  const hitsText = after === null ? `${part.nHits} hits` : `${hitsLeft(part, after)} of ${part.nHits} hits left`;
+  const meta = [`pT ${fmtMomentum(part.pt)}`, `η ${part.eta.toFixed(2)}`, `${hitsText}${generation}`, seedText(part), recoText(part), tracksText, seedsText]
+    .filter(Boolean).join(" · ");
+  const hasList = nTracks || nSeeds;
+  const isOpen = hasList && state.open.has(`t${part.id}`);
+  const twisty = hasList ? `<span class="twisty" title="tracks and seeds with this particle as majority particle">${isOpen ? "▾" : "▸"}</span>` : `<span class="twisty"></span>`;
+  const row = `<div class="row depth2${state.focus === part.id ? " focus" : ""}" data-part="${part.id}">${twisty}
     <input type="checkbox" data-check="part" ${isSelected ? "checked" : ""}><span class="swatch" style="${swatch}"></span>
-    <span class="name">${escapeHtml(particleName(part.pdg))}</span><code>${part.k}</code>
-    <span class="meta" title="${plainText(`${particleName(part.pdg)} ${part.k} · pT ${fmtMomentum(part.pt)} · η ${part.eta.toFixed(2)} · ${part.nHits} hits${generation} · ${seed ? seed + " · " : ""}${recoText(part)}`)}">pT ${fmtMomentum(part.pt)} · η ${part.eta.toFixed(2)} · ${part.nHits} hits${generation} · ${seed ? seed + " · " : ""}${recoText(part)}</span></div>`;
+    <span class="name ${statusClass(part)}">${escapeHtml(particleName(part.pdg))}</span><code>${part.k}</code>
+    <span class="meta" title="${plainText(`${particleName(part.pdg)} ${part.k} · ${meta}`)}">${meta}</span></div>`;
+  return isOpen ? row + part.tracks.map((track) => trackRow(track, "depth3")).join("") + part.seeds.map((seed) => seedRow(seed, 59)).join("") : row;
 }
-function trackRow(track) {
-  const owner = track.owner ? ` · majority ${escapeHtml(particleName(track.owner.pdg))}` : "";
-  return `<div class="row depth2" data-track="${track.id}">
-    <input type="checkbox" data-check="track" ${state.selectedTracks.has(track.id) ? "checked" : ""}>
+const seedColor = (seed) => (seed.part ? colorOf(seed.part) : FAKE_COLOR);
+// indent: padding in px of the row (with its twisty); the propagations and their steps are nested below
+function seedRow(seed, indent) {
+  const isOn = state.selectedSeeds.has(seed.id);
+  const swatch = isOn ? `background:${seedColor(seed)}` : "background:transparent";
+  const nOwn = seed.own.reduce((sum, flag) => sum + flag, 0);
+  const isPure = nOwn === seed.own.length;
+  const estimate = seed.pt !== undefined ? ` · est. pT ${fmtMomentum(seed.pt)} · η ${seed.eta.toFixed(2)}` : "";
+  const ownText = seed.part ? `<span class="${isPure ? "ok" : "warn"}">${seedOwn(seed)} from it</span>`
+                            : `<span class="note">${nOwn}/${seed.own.length} space points from a particle</span>`;
+  const nProps = seed.props.length;
+  const nFailed = seed.props.filter((prop) => !prop.ok).length;
+  const propsText = nProps ? ` · <span class="${nFailed ? "bad" : "ok"}">${nProps} CKF propagation${nProps > 1 ? "s" : ""}${nFailed ? `, ${nFailed} failed` : ""}</span>` : "";
+  const isOpen = nProps && state.open.has(`s${seed.id}`);
+  const twisty = `<span class="twisty" title="CKF propagations from this seed">${nProps ? (isOpen ? "▾" : "▸") : ""}</span>`;
+  const index = seedIndex(seed) !== null ? ` #${seedIndex(seed)}` : "";
+  const row = `<div class="row" style="padding-left:${indent}px" data-seed="${seed.id}">${twisty}
+    <input type="checkbox" data-check="seed" ${isOn ? "checked" : ""}><span class="swatch" style="${swatch}"></span>
+    <span class="name">seed it ${seed.it}${index}${seed.belowTof ? " ↓TOF" : ""}</span>
+    <span class="meta">${ownText} · ${seedInfo(seed)}${estimate}${propsText}</span></div>`;
+  return isOpen ? row + seed.props.map((prop) => propRow(prop, seed, indent + 18)).join("") : row;
+}
+function propRow(prop, seed, indent) {
+  const isOn = state.selectedProps.has(prop.id);
+  const swatch = isOn ? `background:${propColor(prop)}` : "background:transparent";
+  const isOpen = state.open.has(`p${prop.id}`);
+  const branch = prop.nBr > 1 ? ` branch ${prop.br + 1}/${prop.nBr}` : "";
+  const gap = prop.gap ? ` (steps ${prop.gap[0] + 1}–${prop.gap[0] + prop.gap[1]} not stored)` : "";
+  const nTicked = (state.selectedSteps.get(prop.id) || new Set()).size;
+  const ambiguous = prop.amb ? ` · <span class="warn" title="started as close to the steps of these seeds too">also fits seed #${prop.amb.join(", #")}</span>` : "";
+  const row = `<div class="row" style="padding-left:${indent}px" data-prop="${prop.id}" data-seed="${seed.id}">
+    <span class="twisty" title="the steps">${isOpen ? "▾" : "▸"}</span>
+    <input type="checkbox" data-check="prop" ${isOn ? "checked" : ""}><span class="swatch" style="${swatch}"></span>
+    <span class="name ${prop.ok ? "ok" : "bad"}" title="${PROP_NAMES[prop.kind]}, ${prop.ok ? "succeeded" : "failed"}">${prop.kind}${branch}</span>
+    <span class="meta">${prop.ok ? "succeeded" : "failed"} · ${prop.n} steps${gap}${nTicked ? ` · ${nTicked} ticked` : ""}
+      · <label title="a marker at every step"><input type="checkbox" data-check="propAll" ${state.allSteps.has(prop.id) ? "checked" : ""}> all steps</label>${ambiguous}</span></div>`;
+  if (!isOpen) return row;
+  const nStored = prop.x.length;
+  const first = Math.min(state.stepPage.get(prop.id) || 0, Math.max(0, nStored - 1));
+  const last = Math.min(nStored, first + STEPS_PER_PAGE);
+  const ticked = state.selectedSteps.get(prop.id) || new Set();
+  const rows = [`<div class="row note" style="padding-left:${indent + 36}px" data-steppage="${prop.id}" data-seed="${seed.id}">
+    <button data-page="-1000" ${first ? "" : "disabled"}>⏮</button><button data-page="-1" ${first ? "" : "disabled"}>◀</button>
+    steps ${stepNumber(prop, first) + 1}–${stepNumber(prop, last - 1) + 1} of ${prop.n}
+    <button data-page="1" ${last < nStored ? "" : "disabled"}>▶</button><button data-page="1000" ${last < nStored ? "" : "disabled"}>⏭</button></div>`];
+  for (let i_step = first; i_step < last; i_step++) {
+    rows.push(`<div class="row" style="padding-left:${indent + 36}px" data-step="${i_step}" data-prop="${prop.id}" data-seed="${seed.id}">
+      <input type="checkbox" data-check="step" ${ticked.has(i_step) ? "checked" : ""}>
+      <span class="meta">${escapeHtml(stepSummary(prop, i_step))}</span></div>`);
+  }
+  return row + rows.join("");
+}
+function stepSummary(prop, i_step) {
+  const [x, y, z] = [prop.x[i_step], prop.y[i_step], prop.z[i_step]];
+  const isAfterGap = prop.gap && i_step === prop.gap[0];
+  const length = i_step > 0 && !isAfterGap ? Math.hypot(x - prop.x[i_step - 1], y - prop.y[i_step - 1], z - prop.z[i_step - 1]) : null;
+  return `#${stepNumber(prop, i_step) + 1} · r ${Math.hypot(x, y).toFixed(2)} z ${z.toFixed(2)} mm`
+    + `${length !== null ? ` · Δs ${length.toFixed(3)} mm` : ""} · limited by ${STEP_LIMITS[prop.h[i_step]] ?? prop.h[i_step]}`
+    + ` · accuracy step ${prop.acc[i_step]} mm · vol ${prop.v[i_step]} lay ${prop.l[i_step]} sens ${prop.s[i_step]}`
+    + ` · ${prop.tr[i_step]} trial${prop.tr[i_step] === 1 ? "" : "s"}`;
+}
+function trackRow(track, depth = "depth2") {
+  // under a particle the owner is the row above; elsewhere it names the majority particle
+  const owner = track.owner && depth === "depth2" ? ` · majority ${escapeHtml(particleName(track.owner.pdg))}` : "";
+  // measurements from the majority particle (truth particle ids), the purity that decides matched vs fake
+  const majority = track.nMaj != null ? ` · ${track.nMaj} from ${depth === "depth3" ? "it" : "majority"}` : "";
+  const nForeign = track.own ? track.own.filter((flag) => !flag).length : 0;
+  const foreign = nForeign ? ` · ${nForeign} from other particles` : "";
+  const isOn = state.selectedTracks.has(track.id);
+  const swatch = isOn ? `background:${trackColor(track)}` : "background:transparent";
+  return `<div class="row ${depth}" data-track="${track.id}">
+    <input type="checkbox" data-check="track" ${isOn ? "checked" : ""}><span class="swatch" style="${swatch}"></span>
     <span class="name">track ${track.nr}</span>
-    <span class="meta">${TRACK_CLASSES[track.cls]} · ${track.nMeas} meas${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}${owner}</span></div>`;
+    <span class="meta"><span class="${TRACK_CLASS_STYLE[track.cls] || ""}">${TRACK_CLASSES[track.cls]}</span> · ${track.nMeas} meas${majority}${foreign}${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}${owner}</span></div>`;
 }
 function folderRows(node, label, items, rowOf, extra = "") {
   if (!items.length) return "";
   const isOpen = state.open.has(node);
   const isTracks = node.endsWith("f");
-  const check = isTracks ? checkState([], items) : checkState(items);
+  const check = node.endsWith("n") ? seedCheckState(items) : isTracks ? checkState([], items) : checkState(items);
   const rows = [`<div class="row depth1" data-node="${node}"><span class="twisty">${isOpen ? "▾" : "▸"}</span>
     <input type="checkbox" data-check="folder" ${check}><span class="name">${label} (${items.length})</span><span class="meta">${extra}</span></div>`];
   if (isOpen) {
@@ -448,7 +643,7 @@ function folderRows(node, label, items, rowOf, extra = "") {
 function renderTree() {
   const rows = [];
   for (const entry of view.slice(0, MAX_EVENT_ROWS)) {
-    const { ev, prim, sec, fakes } = entry;
+    const { ev, prim, sec, fakes, nseeds } = entry;
     const node = `e${ev.id}`;
     const isOpen = state.open.has(node);
     const all = prim.concat(sec);
@@ -458,7 +653,8 @@ function renderTree() {
     if (!isOpen) continue;
     rows.push(folderRows(`${node}p`, "Primaries", prim, particleRow, efficiencyText(prim)));
     rows.push(folderRows(`${node}s`, "Secondaries", sec, particleRow, efficiencyText(sec)));
-    rows.push(folderRows(`${node}f`, "Fake / unmatched tracks", fakes, trackRow));
+    rows.push(folderRows(`${node}f`, "Tracks without a majority particle", fakes, trackRow));
+    rows.push(folderRows(`${node}n`, "Seeds without a majority particle, with CKF steps", nseeds, (seed) => seedRow(seed, 40)));
   }
   if (view.length > MAX_EVENT_ROWS) rows.push(`<div class="row note">… ${view.length - MAX_EVENT_ROWS} more events, narrow the filters or search an id</div>`);
   if (!view.length) rows.push(`<div class="row note">No particle passes the filters.</div>`);
@@ -469,22 +665,36 @@ function renderTree() {
   const efficiency = efficiencyText(allShown);
   byId("treeSummary").textContent = `${view.length} events · ${allShown.length} particles · ${state.selected.size} selected${efficiency ? ` · ${efficiency}` : ""}`;
 }
-function entryOf(node) { return view.find((entry) => `e${entry.ev.id}` === node.replace(/[psf]$/, "")); }
+function entryOf(node) { return view.find((entry) => `e${entry.ev.id}` === node.replace(/[psfn]$/, "")); }
 function itemsOf(node) {
   const entry = entryOf(node);
   if (!entry) return { parts: [], tracks: [] };
   if (node.endsWith("p")) return { parts: entry.prim, tracks: [] };
   if (node.endsWith("s")) return { parts: entry.sec, tracks: [] };
   if (node.endsWith("f")) return { parts: [], tracks: entry.fakes };
+  if (node.endsWith("n")) return { parts: [], tracks: [], seeds: entry.nseeds };
   return { parts: entry.prim.concat(entry.sec), tracks: entry.fakes };
 }
+function clearProps() { state.selectedProps.clear(); state.allSteps.clear(); state.selectedSteps.clear(); }
+function dropProp(prop) { state.selectedProps.delete(prop.id); state.allSteps.delete(prop.id); state.selectedSteps.delete(prop.id); }
+function dropSeed(seed) {
+  state.selectedSeeds.delete(seed.id);
+  // the propagations are shared by the seed's rows under other particles: only dropped when none of them is ticked
+  const isStillShown = [...state.selectedSeeds].some((id) => { const other = seedById.get(id); return other && other.ev === seed.ev && other.ref === seed.ref; });
+  if (!isStillShown) for (const prop of seed.props) dropProp(prop);
+}
+// ticking a propagation or step draws its seed and the seed's particle too
+function pickSeed(seed) { if (seed.part) setSelected([seed.part], [], true); state.selectedSeeds.add(seed.id); }
 function setSelected(parts, tracks, isOn) {
   for (const part of parts) {
-    if (!isOn) state.selected.delete(part.id);
+    if (!isOn) {
+      state.selected.delete(part.id);
+      for (const track of part.tracks) state.selectedTracks.delete(track.id);
+      for (const seed of part.seeds) dropSeed(seed);
+    }
     else if (state.selected.size < MAX_DRAWN) state.selected.add(part.id);
   }
   for (const track of tracks) isOn ? state.selectedTracks.add(track.id) : state.selectedTracks.delete(track.id);
-  state.revision++;
 }
 byId("tree").addEventListener("click", (e) => {
   const row = e.target.closest(".row");
@@ -494,12 +704,38 @@ byId("tree").addEventListener("click", (e) => {
     renderTree(); return;
   }
   if (e.target.matches("input")) return;  // handled by "change"
+  if (row.dataset.steppage) {
+    const button = e.target.closest("button[data-page]");
+    if (!button) return;
+    const prop = propById.get(row.dataset.steppage);
+    const first = state.stepPage.get(prop.id) || 0;
+    const lastPage = Math.floor((prop.x.length - 1) / STEPS_PER_PAGE) * STEPS_PER_PAGE;
+    state.stepPage.set(prop.id, Math.max(0, Math.min(lastPage, first + Math.sign(+button.dataset.page) * (Math.abs(+button.dataset.page) >= 1000 ? Infinity : STEPS_PER_PAGE))));
+    renderTree(); return;
+  }
+  if (row.dataset.prop && !row.dataset.step && e.target.closest(".twisty, .name")) {
+    const node = `p${row.dataset.prop}`;
+    state.open.has(node) ? state.open.delete(node) : state.open.add(node);
+    renderTree(); return;
+  }
+  if (row.dataset.seed && !row.dataset.prop && e.target.closest(".twisty")) {
+    const seed = seedById.get(row.dataset.seed);
+    const node = `s${seed.id}`;
+    if (seed.props.length) { state.open.has(node) ? state.open.delete(node) : state.open.add(node); renderTree(); }
+    return;
+  }
   if (row.dataset.node && (e.target.closest(".twisty") || e.target.closest(".name") || e.target.closest(".meta"))) {
     const node = row.dataset.node;
     state.open.has(node) ? state.open.delete(node) : state.open.add(node);
     // opening an event opens its primaries too, the folder one usually wants
-    if (!node.match(/[psf]$/) && state.open.has(node)) state.open.add(`${node}p`);
+    if (!node.match(/[psfn]$/) && state.open.has(node)) state.open.add(`${node}p`);
     renderTree(); return;
+  }
+  if (row.dataset.part && e.target.closest(".twisty")) {
+    const node = `t${row.dataset.part}`;
+    const part = partById.get(row.dataset.part);
+    if (part.tracks.length || part.seeds.length) { state.open.has(node) ? state.open.delete(node) : state.open.add(node); renderTree(); }
+    return;
   }
   if (row.dataset.part && e.target.closest(".name, .meta")) {
     const part = partById.get(row.dataset.part);
@@ -511,19 +747,50 @@ byId("tree").addEventListener("change", (e) => {
   if (!row || !e.target.dataset.check) return;
   const isOn = e.target.checked;
   if (row.dataset.part) setSelected([partById.get(row.dataset.part)], [], isOn);
-  else if (row.dataset.track) setSelected([], [trackById.get(row.dataset.track)], isOn);
-  else if (row.dataset.node) { const { parts, tracks } = itemsOf(row.dataset.node); setSelected(parts, tracks, isOn); }
+  else if (row.dataset.track) {
+    const track = trackById.get(row.dataset.track);
+    setSelected(isOn && track.owner ? [track.owner] : [], [track], isOn);
+  }
+  else if (row.dataset.step) {
+    const prop = propById.get(row.dataset.prop);
+    if (!state.selectedSteps.has(prop.id)) state.selectedSteps.set(prop.id, new Set());
+    const ticked = state.selectedSteps.get(prop.id);
+    if (isOn) { ticked.add(+row.dataset.step); state.selectedProps.add(prop.id); pickSeed(seedById.get(row.dataset.seed)); }
+    else ticked.delete(+row.dataset.step);
+  }
+  else if (row.dataset.prop) {
+    const prop = propById.get(row.dataset.prop);
+    if (e.target.dataset.check === "propAll") {
+      if (isOn) { state.allSteps.add(prop.id); state.selectedProps.add(prop.id); pickSeed(seedById.get(row.dataset.seed)); }
+      else state.allSteps.delete(prop.id);
+    }
+    else if (isOn) { state.selectedProps.add(prop.id); pickSeed(seedById.get(row.dataset.seed)); }
+    else dropProp(prop);
+  }
+  else if (row.dataset.seed) {
+    // ticking a seed also draws its particle
+    const seed = seedById.get(row.dataset.seed);
+    if (isOn) pickSeed(seed); else dropSeed(seed);
+  }
+  else if (row.dataset.node) {
+    const { parts, tracks, seeds } = itemsOf(row.dataset.node);
+    setSelected(parts, tracks, isOn);
+    for (const seed of seeds || []) isOn ? pickSeed(seed) : dropSeed(seed);
+  }
   renderTree(); draw();
 });
 function focusParticle(part) {
   if (part && !state.selected.has(part.id)) setSelected([part], [], true);
   state.focus = part ? part.id : null;
-  if (part) { state.open.add(`e${part.ev.id}`); state.open.add(`e${part.ev.id}${part.g === 0 ? "p" : "s"}`); }
+  if (part) {
+    state.open.add(`e${part.ev.id}`); state.open.add(`e${part.ev.id}${part.g === 0 ? "p" : "s"}`);
+    if (part.tracks.length || part.seeds.length) state.open.add(`t${part.id}`);
+  }
   renderTree(); draw();
   if (!byId("treeModal").hidden) renderDecayTree();
 }
 byId("selectFirst").addEventListener("click", () => {
-  state.selected.clear(); state.selectedTracks.clear();
+  state.selected.clear(); state.selectedTracks.clear(); state.selectedSeeds.clear(); clearProps();
   for (const entry of view.slice(0, 10)) setSelected(entry.prim.concat(entry.sec), [], true);
   state.revision++; renderTree(); draw();
 });
@@ -532,7 +799,7 @@ byId("selectShown").addEventListener("click", () => {
   renderTree(); draw();
 });
 byId("clearSelection").addEventListener("click", () => {
-  state.selected.clear(); state.selectedTracks.clear(); state.focus = null; state.revision++;
+  state.selected.clear(); state.selectedTracks.clear(); state.selectedSeeds.clear(); clearProps(); state.focus = null; state.revision++;
   renderTree(); draw();
 });
 byId("collapseAll").addEventListener("click", () => { state.open.clear(); renderTree(); });
@@ -570,41 +837,59 @@ document.querySelectorAll("[data-layers]").forEach((button) => button.addEventLi
   }
   draw();
 }));
-for (const id of ["showMissed", "showVertices", "showHelix", "showMeasurements", "showSmoothed", "helixTurns"]) byId(id).addEventListener("change", draw);
-
-// detector envelope, to clip the ideal helices of stiff particles
-const DETECTOR = { r: 0, z: 0 };
-for (const layer of DATA.layers) {
-  DETECTOR.r = Math.max(DETECTOR.r, layer.kind === "cylinder" ? layer.r : layer.rMax);
-  DETECTOR.z = Math.max(DETECTOR.z, ...(layer.kind === "cylinder" ? [Math.abs(layer.zMin), Math.abs(layer.zMax)] : [Math.abs(layer.z)]));
+for (const id of ["showMissed", "showVertices", "showHitMomenta", "hitArrowLength", "showMeasurements", "showSmoothed", "showSeeds", "seedIteration", "showBelowTof"]) byId(id).addEventListener("change", draw);
+// seeds: one entry per iteration that has any, hidden without seeds.root
+{
+  const iterations = new Set();
+  for (const ev of events) for (const part of ev.parts) for (const seed of part.seeds || []) iterations.add(seed.it);
+  for (const iteration of [...iterations].sort((a, b) => a - b)) byId("seedIteration").add(new Option(`${iteration}`, `${iteration}`));
+  if (!DATA.hasSeeds) byId("seedOptions").style.display = "none";
+  if (!events.some((ev) => ev.parts.some((part) => (part.seeds || []).some((seed) => seed.belowTof)))) byId("belowTofOption").style.display = "none";
 }
-DETECTOR.r *= 1.05; DETECTOR.z *= 1.05;
+function seedsShown(part) {
+  // the ticked seeds, plus all (of one iteration) with "All seeds of the drawn particles"
+  const iteration = byId("seedIteration").value;
+  return part.seeds.filter((seed) => state.selectedSeeds.has(seed.id)
+    || (byId("showSeeds").checked && (iteration === "all" || seed.it === +iteration) && (!seed.belowTof || byId("showBelowTof").checked)));
+}
+function seedLabel(seed) {
+  const estimate = seed.pt !== undefined ? ` · est. pT ${fmtMomentum(seed.pt)} · η ${seed.eta.toFixed(2)}` : "";
+  return `${seed.belowTof ? "below-TOF seed" : "seed"} of iteration ${seed.it} · ${seedInfo(seed)}${estimate} · ${seedOwn(seed)} space points from this particle`;
+}
+
+byId("layerSource").textContent = DATA.layerSource === "geometry"
+  ? "Sensitive layers from the ACTS tracking geometry (o2sim_geometry.root); passive ones from the Gen3 geometry config."
+  : "Sensitive layers estimated from where this sample's hits are (no --geometry given).";
+
+// ---------- resizable sidebar (width remembered per viewer) ----------
+function setSidebarWidth(width) {
+  const clamped = Math.max(260, Math.min(width, window.innerWidth - 400));
+  document.documentElement.style.setProperty("--sidebar-width", `${clamped}px`);
+  return clamped;
+}
+try { const saved = Number(localStorage.getItem("eventDisplaySidebar")); if (saved) setSidebarWidth(saved); } catch {}
+byId("resizer").addEventListener("pointerdown", (e) => {
+  const resizer = byId("resizer");
+  resizer.setPointerCapture(e.pointerId);
+  resizer.classList.add("dragging");
+  let width = null;
+  const move = (event) => { width = setSidebarWidth(event.clientX); };
+  const up = () => {
+    resizer.classList.remove("dragging");
+    resizer.removeEventListener("pointermove", move);
+    resizer.removeEventListener("pointerup", up);
+    if (width) try { localStorage.setItem("eventDisplaySidebar", String(width)); } catch {}
+    for (const plotId of ["plotXY", "plotRZ", "plot3D"]) if (!byId(plotId).hidden && byId(plotId).data) Plotly.Plots.resize(plotId);
+  };
+  resizer.addEventListener("pointermove", move);
+  resizer.addEventListener("pointerup", up);
+});
 
 // ---------- geometry helpers ----------
 function circle(r, n = 180) {
   const xs = [], ys = [];
   for (let i_point = 0; i_point <= n; i_point++) { const a = (2 * Math.PI * i_point) / n; xs.push(r * Math.cos(a)); ys.push(r * Math.sin(a)); }
   return [xs, ys];
-}
-function helix(part, turns) {
-  // centre of curvature: positive charge in +B_z turns clockwise (seen from +z)
-  const radius = (part.pt / (KAPPA * DATA.bField)) * 1000; // mm
-  const sign = Math.sign(part.q) || 1;
-  const cx = part.vx + (sign * radius * part.py) / part.pt;
-  const cy = part.vy - (sign * radius * part.px) / part.pt;
-  const a0 = Math.atan2(part.vy - cy, part.vx - cx);
-  const xs = [], ys = [], zs = [], rs = [];
-  const n = Math.max(40, Math.round(turns * 120));
-  for (let i_point = 0; i_point <= n; i_point++) {
-    const psi = (2 * Math.PI * turns * i_point) / n;
-    const x = cx + radius * Math.cos(a0 - sign * psi);
-    const y = cy + radius * Math.sin(a0 - sign * psi);
-    const z = part.vz + (radius * psi * part.pz) / part.pt;
-    const r = Math.hypot(x, y);
-    if (r > DETECTOR.r || Math.abs(z) > DETECTOR.z) break;  // left the detector
-    xs.push(x); ys.push(y); zs.push(z); rs.push(r);
-  }
-  return { xs, ys, zs, rs, radius, rmax: Math.hypot(cx, cy) + radius };
 }
 const rOf = (xs, ys) => xs.map((x, i_point) => Math.hypot(x, ys[i_point]));
 
@@ -677,8 +962,20 @@ function lineBatches() {
     groups,
   };
 }
+// p⃗ entering the sensor and after leaving it (hits.root momentum4Before / + delta), one unit for all components
+function vectorText(vector) {
+  const isGeV = Math.hypot(...vector) >= 1;
+  const scale = isGeV ? 1 : 1000;
+  return `(${vector.map((value) => (value * scale).toFixed(isGeV ? 4 : 2)).join(", ")}) ${isGeV ? "GeV" : "MeV"}`;
+}
+function momentumText(hits, i_hit) {
+  const before = [hits.px[i_hit], hits.py[i_hit], hits.pz[i_hit]];
+  const after = hits.dpx ? before.map((value, i_axis) => value + hits[`dp${"xyz"[i_axis]}`][i_hit]) : null;
+  return `p⃗ in  = ${vectorText(before)} · |p| ${fmtMomentum(Math.hypot(...before))}`
+    + (after ? `<br>p⃗ out = ${vectorText(after)} · |p| ${fmtMomentum(Math.hypot(...after))}` : "");
+}
 function partLabel(part) { return `ev ${part.ev.id} · ${particleName(part.pdg)} ${part.k} · pT ${fmtMomentum(part.pt)}`; }
-function trackLabel(track) { return `ev ${track.ev.id} track ${track.nr} (${TRACK_CLASSES[track.cls]}) · ${track.nMeas} meas${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}`; }
+function trackLabel(track) { return `ev ${track.ev.id} track ${track.nr} (${TRACK_CLASSES[track.cls]}) · ${track.nMeas} meas${track.nMaj != null ? `, ${track.nMaj} from majority` : ""}${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}`; }
 
 function draw() {
   const xy = [], rz = [], xyz = [];
@@ -699,17 +996,31 @@ function draw() {
 
   const selectedParts = [...state.selected].map((id) => partById.get(id)).filter(Boolean);
   const focus = state.focus ? partById.get(state.focus) : null;
-  const turns = Math.max(0.25, +byId("helixTurns").value || 1.5);
   const span = { r: 0, zMin: Infinity, zMax: -Infinity };
   const extend = (x, y, z) => {
     span.r = Math.max(span.r, Math.hypot(x, y)); span.zMin = Math.min(span.zMin, z); span.zMax = Math.max(span.zMax, z);
   };
 
   const primaryHits = pointBatch(), secondaryHits = pointBatch(), primaryMissed = pointBatch(), secondaryMissed = pointBatch();
+  // momentum arrows at the hits: per arrow its start, unit direction, colour and hover text
+  const arrows = [];
+  const showArrows = byId("showHitMomenta").checked;
   const measurements = pointBatch(), foreignMeasurements = pointBatch(), vertices = pointBatch();
-  const markMissed = byId("showMissed").checked;
-  const smoothed = lineBatches(), helices = lineBatches();
+  const markMissed = !SIM_ONLY && byId("showMissed").checked;
+  const smoothed = lineBatches(), seedLines = lineBatches();
+  const seedPoints = pointBatch(), foreignSeedPoints = pointBatch();
   const familiesByEvent = new Map();
+  const drawSeed = (seed, color, label) => {
+    const seedText = `${label}<br>${seedLabel(seed)}`;
+    seedLines.add(color, seed.x, seed.y, seed.z, seedText);
+    for (let i_sp = 0; i_sp < seed.x.length; i_sp++) {
+      const [x, y, z] = [seed.x[i_sp], seed.y[i_sp], seed.z[i_sp]];
+      const batch = seed.own[i_sp] ? seedPoints : foreignSeedPoints;
+      batch.x.push(x); batch.y.push(y); batch.z.push(z); batch.r.push(Math.hypot(x, y)); batch.color.push(color);
+      batch.text.push(`${seedText}<br>space point ${i_sp + 1}${seed.own[i_sp] ? "" : ` <b>from ${seed.part ? "another particle or noise" : "noise"}</b>`}`);
+      extend(x, y, z);
+    }
+  };
   const drawTrack = (track, color) => {
     const label = trackLabel(track);
     if (byId("showSmoothed").checked && track.smt.x.length) smoothed.add(color, track.smt.x, track.smt.y, track.smt.z, label);
@@ -725,24 +1036,30 @@ function draw() {
     }
     for (let i_meas = 0; i_meas < track.meas.x.length; i_meas++) extend(track.meas.x[i_meas], track.meas.y[i_meas], track.meas.z[i_meas]);
   };
+  const after = afterIteration();
   for (const part of selectedParts) {
+    if (after !== null && !hitsLeft(part, after)) continue;
     const color = colorOf(part);
     const label = partLabel(part);
     const hits = part.hits;
     for (let i_hit = 0; i_hit < hits.x.length; i_hit++) {
+      if (!isHitLeft(hits, i_hit, after)) continue;
       const [x, y, z] = [hits.x[i_hit], hits.y[i_hit], hits.z[i_hit]];
       const r = Math.hypot(x, y);
+      const removedText = hits.it ? (hits.it[i_hit] >= 0 ? ` · removed after iteration ${hits.it[i_hit]}` : " · left after all iterations") : "";
       const isFound = !!hits.found[i_hit];
       const batch = part.g === 0 ? (isFound || !markMissed ? primaryHits : primaryMissed) : (isFound || !markMissed ? secondaryHits : secondaryMissed);
       batch.x.push(x); batch.y.push(y); batch.z.push(z); batch.r.push(r); batch.color.push(color);
-      batch.text.push(`${label}<br>hit ${i_hit} of ${hits.x.length} (time order) · layer ${hits.layer[i_hit]} · ${isFound ? "on its track" : "<b>not on a track</b>"}<br>r ${r.toFixed(1)} mm · t ${hits.t[i_hit].toFixed(3)} ns · |p| ${fmtMomentum(hits.p[i_hit])}`);
+      if (showArrows && hits.px) {
+        const [px, py, pz] = [hits.px[i_hit], hits.py[i_hit], hits.pz[i_hit]];
+        const p = Math.hypot(px, py, pz);
+        if (p > 0) arrows.push({ x, y, z, ux: px / p, uy: py / p, uz: pz / p, color,
+                                 text: `${label}<br>hit ${i_hit} · layer ${hits.layer[i_hit]}<br>${momentumText(hits, i_hit)}` });
+      }
+      batch.text.push(`${label}<br>hit ${i_hit} of ${hits.x.length} (time order) · layer ${hits.layer[i_hit]}${SIM_ONLY ? "" : isFound ? " · on its track" : " · <b>not on a track</b>"}${removedText}<br>r ${r.toFixed(1)} mm · t ${hits.t[i_hit].toFixed(3)} ns · |p| ${fmtMomentum(hits.p[i_hit])}`);
       extend(x, y, z);
     }
-    if (byId("showHelix").checked && part.q && part.pt > 0) {
-      const h = helix(part, turns);
-      helices.add(color, h.xs, h.ys, h.zs, `${label} · helix R = ${h.radius.toFixed(0)} mm`);
-    }
-    for (const track of part.tracks) drawTrack(track, color);
+    for (const seed of seedsShown(part)) drawSeed(seed, color, label);
     if (part.g > 0) {
       vertices.x.push(part.vx); vertices.y.push(part.vy); vertices.z.push(part.vz); vertices.r.push(Math.hypot(part.vx, part.vy));
       vertices.color.push(color); vertices.text.push(`${label}<br>produced by ${PROCESS_NAMES[part.proc] ?? part.proc}`);
@@ -750,7 +1067,37 @@ function draw() {
     if (!familiesByEvent.has(part.ev)) familiesByEvent.set(part.ev, new Map());
     if (!familiesByEvent.get(part.ev).has(part.fam)) familiesByEvent.get(part.ev).set(part.fam, color);
   }
-  for (const id of state.selectedTracks) { const track = trackById.get(id); if (track) drawTrack(track, FAKE_COLOR); }
+  for (const id of state.selectedTracks) { const track = trackById.get(id); if (track) drawTrack(track, trackColor(track)); }
+  // seeds without a majority particle (listed for their CKF steps)
+  for (const id of state.selectedSeeds) {
+    const seed = seedById.get(id);
+    if (seed && !seed.part) drawSeed(seed, FAKE_COLOR, `ev ${seed.ev.id} · no majority particle`);
+  }
+  // CKF propagations: one line each (a gap where steps were not stored), markers at every step on
+  // request and at the ticked steps
+  const propTraces = [], stepPoints = pointBatch(), tickedSteps = pointBatch();
+  for (const id of state.selectedProps) {
+    const prop = propById.get(id);
+    if (!prop) continue;
+    const color = propColor(prop);
+    const label = `ev ${prop.ev.id} · seed it ${prop.ref.replace(":", " #")} · ${PROP_NAMES[prop.kind]}${prop.nBr > 1 ? ` branch ${prop.br + 1}/${prop.nBr}` : ""} ${prop.ok ? "succeeded" : "failed"}`;
+    const line = { x: [], y: [], z: [], r: [], text: [] };
+    const ticked = state.selectedSteps.get(prop.id) || new Set();
+    const withAll = state.allSteps.has(prop.id);
+    for (let i_step = 0; i_step < prop.x.length; i_step++) {
+      if (prop.gap && i_step === prop.gap[0]) for (const key of ["x", "y", "z", "r", "text"]) line[key].push(null);
+      const [x, y, z] = [prop.x[i_step], prop.y[i_step], prop.z[i_step]];
+      const r = Math.hypot(x, y);
+      const text = `${label}<br>${stepSummary(prop, i_step).replaceAll(" · ", "<br>")}`;
+      line.x.push(x); line.y.push(y); line.z.push(z); line.r.push(r); line.text.push(text);
+      for (const batch of [withAll && stepPoints, ticked.has(i_step) && tickedSteps]) {
+        if (!batch) continue;
+        batch.x.push(x); batch.y.push(y); batch.z.push(z); batch.r.push(r); batch.color.push(color); batch.text.push(text);
+      }
+      extend(x, y, z);
+    }
+    propTraces.push({ color, line });
+  }
   // secondaries without hits: their production vertex, when their family is drawn
   for (const [ev, families] of familiesByEvent) {
     for (const vertex of ev.vertices) {
@@ -764,7 +1111,7 @@ function draw() {
 
   const is3D = state.view === "3d";
   // scatter3d knows fewer symbols than the 2D traces
-  const SYMBOLS_3D = { star: "diamond", "x-open": "cross", "square-x-open": "diamond-open" };
+  const SYMBOLS_3D = { star: "diamond", "x-open": "cross", "square-x-open": "diamond-open", "triangle-up-open": "circle-open", "triangle-down-open": "x" };
   const markerTrace = (batch, symbol, size, extra = {}) => {
     if (!batch.x.length) return;
     const hover = { text: batch.text, hovertemplate: "%{text}<extra></extra>", showlegend: false };
@@ -783,15 +1130,62 @@ function draw() {
       xyz.push({ type: "scatter3d", x: batch.x, y: batch.y, z: batch.z, mode: "lines", line: { color, width: width * 2, dash }, opacity, ...hover });
     }
   };
-  lineTraces(helices, 1, "dash", 0.9);
   lineTraces(smoothed, 2.5, "solid", 0.6);
+  lineTraces(seedLines, 1.5, "dot", 0.9);
+  for (const { color, line } of propTraces) {
+    const hover = { text: line.text, hovertemplate: "%{text}<extra></extra>", showlegend: false };
+    xy.push({ type: "scattergl", x: line.x, y: line.y, mode: "lines", line: { color, width: 1.8 }, opacity: 0.85, ...hover });
+    rz.push({ type: "scattergl", x: line.z, y: line.r, mode: "lines", line: { color, width: 1.8 }, opacity: 0.85, ...hover });
+    xyz.push({ type: "scatter3d", x: line.x, y: line.y, z: line.z, mode: "lines", line: { color, width: 3.5 }, opacity: 0.85, ...hover });
+  }
+  markerTrace(stepPoints, "circle", 4);
+  if (arrows.length) {
+    // fixed length in mm along the 3D direction; in r-z the direction is projected on (r, z)
+    const length = Math.max(1, +byId("hitArrowLength").value || 20);
+    for (const [traces, project] of [
+      [xy, (a) => [[a.x, a.y], [a.x + length * a.ux, a.y + length * a.uy]]],
+      [rz, (a) => { const r = Math.hypot(a.x, a.y); const ur = r > 0 ? (a.x * a.ux + a.y * a.uy) / r : 0;
+                    return [[a.z, r], [a.z + length * a.uz, r + length * ur]]; }],
+    ]) {
+      // SVG scatter: its "arrow" marker turns along the line (angleref "previous"), scattergl's does not
+      const xs = [], ys = [], texts = [], colors = [], sizes = [], symbols = [];
+      for (const arrow of arrows) {
+        const [[x0, y0], [x1, y1]] = project(arrow);
+        xs.push(x0, x1, null); ys.push(y0, y1, null); texts.push(arrow.text, arrow.text, null);
+        colors.push(arrow.color, arrow.color, arrow.color); sizes.push(0, 9, 0); symbols.push("circle", "arrow", "circle");
+      }
+      // one trace per colour for the line (a trace has one line colour), markers carry their own
+      const byColor = new Map();
+      arrows.forEach((arrow, i_arrow) => { if (!byColor.has(arrow.color)) byColor.set(arrow.color, []); byColor.get(arrow.color).push(i_arrow); });
+      for (const [color, indices] of byColor) {
+        const pick = (values) => indices.flatMap((i_arrow) => values.slice(3 * i_arrow, 3 * i_arrow + 3));
+        traces.push({ type: "scatter", x: pick(xs), y: pick(ys), mode: "lines+markers", line: { color, width: 1.5 },
+                      marker: { color, size: pick(sizes), symbol: pick(symbols), angleref: "previous" },
+                      text: pick(texts), hovertemplate: "%{text}<extra></extra>", showlegend: false });
+      }
+    }
+    const lines3D = { x: [], y: [], z: [], text: [] };
+    for (const arrow of arrows) {
+      lines3D.x.push(arrow.x, arrow.x + length * arrow.ux, null); lines3D.y.push(arrow.y, arrow.y + length * arrow.uy, null);
+      lines3D.z.push(arrow.z, arrow.z + length * arrow.uz, null); lines3D.text.push(arrow.text, arrow.text, null);
+    }
+    xyz.push({ type: "scatter3d", ...lines3D, mode: "lines", line: { color: arrows.flatMap((arrow) => [arrow.color, arrow.color, arrow.color]), width: 3 },
+               hovertemplate: "%{text}<extra></extra>", showlegend: false });
+    xyz.push({ type: "cone", x: arrows.map((a) => a.x + length * a.ux), y: arrows.map((a) => a.y + length * a.uy), z: arrows.map((a) => a.z + length * a.uz),
+               u: arrows.map((a) => a.ux), v: arrows.map((a) => a.uy), w: arrows.map((a) => a.uz), anchor: "tip",
+               sizemode: "absolute", sizeref: 0.35 * length, showscale: false, colorscale: [[0, "#888"], [1, "#888"]],
+               hovertext: arrows.map((a) => a.text), hoverinfo: "text" });
+  }
   markerTrace(secondaryHits, "x", 6);
   markerTrace(secondaryMissed, "x-open", 8, { line: { width: 1.5 } });
   markerTrace(primaryHits, "circle", 7);
   markerTrace(primaryMissed, "circle-open", 8, { line: { width: 2 } });
   markerTrace(measurements, "square-open", 11, { line: { width: 1.5 } });
   markerTrace(foreignMeasurements, "square-x-open", 12, { line: { width: 1.5 } });
+  markerTrace(seedPoints, "triangle-up-open", 13, { line: { width: 2 } });
+  markerTrace(foreignSeedPoints, "triangle-down-open", 13, { line: { width: 2 } });
   if (byId("showVertices").checked) markerTrace(vertices, "star", 11, { line: { color: "#000", width: 0.5 } });
+  markerTrace(tickedSteps, "diamond", 12, { line: { color: cssVar("--text"), width: 1.5 } });
 
   // the focused particle on top: enlarged hits with an outline
   if (focus && state.selected.has(focus.id)) {
@@ -807,15 +1201,22 @@ function draw() {
 
   const text = cssVar("--text"), grid = cssVar("--plot-grid"), bg = cssVar("--bg");
   const axis = (title) => ({ title: { text: title }, gridcolor: grid, zerolinecolor: grid, color: text });
-  // zoom to the selection; a new selection resets the view, everything else keeps the user's zoom
+  // zoom to the selection only on the whole-view actions (state.revision); ticking particles,
+  // tracks or seeds keeps the user's zoom/pan, and the drag mode is always kept
   const base = { paper_bgcolor: bg, plot_bgcolor: bg, font: { color: text, size: 12 }, margin: { l: 55, r: 15, t: 35, b: 45 },
-                 hovermode: "closest", uirevision: state.revision };
-  const hasSpan = span.r > 0;
-  const rRange = hasSpan ? 1.15 * span.r : undefined;
-  const zPad = hasSpan ? Math.max(20, 0.1 * (span.zMax - span.zMin)) : 0;
+                 hovermode: "closest", uirevision: state.revision, dragmode: state.dragmode };
+  // the axis ranges follow the selection only on the whole-view actions (state.revision), or while
+  // nothing was drawn yet: Plotly keeps a zoom/pan of the user only while the range sent stays the same
+  if (state.spanRevision !== state.revision || !(state.viewSpan && state.viewSpan.r > 0)) {
+    state.viewSpan = { ...span }; state.spanRevision = state.revision;
+  }
+  const viewSpan = state.viewSpan;
+  const hasSpan = viewSpan.r > 0;
+  const rRange = hasSpan ? 1.15 * viewSpan.r : undefined;
+  const zPad = hasSpan ? Math.max(20, 0.1 * (viewSpan.zMax - viewSpan.zMin)) : 0;
   if (is3D) {
     // layers: only what lies in the viewed region, so the scene stays zoomed on the selection
-    const zLo = hasSpan ? span.zMin - zPad : -Infinity, zHi = hasSpan ? span.zMax + zPad : Infinity;
+    const zLo = hasSpan ? viewSpan.zMin - zPad : -Infinity, zHi = hasSpan ? viewSpan.zMax + zPad : Infinity;
     const rLim = hasSpan ? rRange : Infinity;
     const layers3D = [];
     for (const layer of DATA.layers) {
@@ -831,7 +1232,7 @@ function draw() {
                                 line: { color: layer.sensitive ? "rgba(110,120,135,0.9)" : "rgba(196,150,90,0.9)", width: layer.sensitive ? 2 : 2.5 } });
     }
     const axis3D = (title, range) => ({ title: { text: title }, gridcolor: grid, zerolinecolor: grid, color: text, backgroundcolor: bg, showbackground: false, ...(range && { range }) });
-    const zSpan = hasSpan ? span.zMax - span.zMin + 2 * zPad : 1;
+    const zSpan = hasSpan ? viewSpan.zMax - viewSpan.zMin + 2 * zPad : 1;
     const zRatio = hasSpan ? Math.min(4, Math.max(0.25, zSpan / (2 * rRange))) : 1;
     Plotly.react("plot3D", [...layers3D, ...xyz], {
       paper_bgcolor: bg, font: { color: text, size: 12 }, margin: { l: 0, r: 0, t: 30, b: 0 },
@@ -841,20 +1242,42 @@ function draw() {
                zaxis: axis3D("z (mm)", hasSpan && [zLo, zHi]), camera: { up: { x: 0, y: 1, z: 0 }, eye: { x: 1.4, y: 0.9, z: 1.6 } } },
       uirevision: state.revision }, PLOT_CONFIG);
   } else {
+    // the user's zoom/pan, kept until the next whole-view action
+    const userRange = (plotId) => {
+      const ranges = state.userRanges[plotId];
+      return ranges && ranges.revision === state.revision ? ranges : null;
+    };
+    const xyRange = userRange("plotXY"), rzRange = userRange("plotRZ");
     Plotly.react("plotXY", xy, { ...base, title: { text: "x – y", font: { size: 13 } },
-      xaxis: { ...axis("x (mm)"), ...(hasSpan && { range: [-rRange, rRange] }) },
-      yaxis: { ...axis("y (mm)"), scaleanchor: "x", scaleratio: 1, ...(hasSpan && { range: [-rRange, rRange] }) } },
+      xaxis: { ...axis("x (mm)"), ...(xyRange ? { range: xyRange.x } : hasSpan && { range: [-rRange, rRange] }) },
+      yaxis: { ...axis("y (mm)"), scaleanchor: "x", scaleratio: 1, ...(xyRange ? { range: xyRange.y } : hasSpan && { range: [-rRange, rRange] }) } },
       PLOT_CONFIG);
     Plotly.react("plotRZ", rz, { ...base, title: { text: "r – z", font: { size: 13 } },
-      xaxis: { ...axis("z (mm)"), ...(hasSpan && { range: [span.zMin - zPad, span.zMax + zPad] }) },
-      yaxis: { ...axis("r (mm)"), ...(hasSpan ? { range: [0, rRange] } : { rangemode: "tozero" }) } },
+      xaxis: { ...axis("z (mm)"), ...(rzRange ? { range: rzRange.x } : hasSpan && { range: [viewSpan.zMin - zPad, viewSpan.zMax + zPad] }) },
+      yaxis: { ...axis("r (mm)"), ...(rzRange ? { range: rzRange.y } : hasSpan ? { range: [0, rRange] } : { rangemode: "tozero" }) } },
       PLOT_CONFIG);
+    // remember a drag mode picked in the mode bar, and give it to the other 2D plot too
+    for (const plotId of ["plotXY", "plotRZ"]) {
+      const plot = byId(plotId);
+      if (plot.hasDragListener) continue;
+      plot.hasDragListener = true;
+      plot.on("plotly_relayout", (update) => {
+        if (Object.keys(update).some((key) => key.startsWith("xaxis") || key.startsWith("yaxis"))) {
+          const layout = plot._fullLayout;
+          state.userRanges[plotId] = { x: [...layout.xaxis.range], y: [...layout.yaxis.range], revision: state.revision };
+        }
+        if (!update.dragmode || update.dragmode === state.dragmode) return;
+        state.dragmode = update.dragmode;
+        const other = byId(plotId === "plotXY" ? "plotRZ" : "plotXY");
+        if (other.data) Plotly.relayout(other, { dragmode: update.dragmode });
+      });
+    }
   }
 
-  const nSelected = selectedParts.length + state.selectedTracks.size;
+  const nSelected = selectedParts.length + state.selectedTracks.size + state.selectedSeeds.size + state.selectedProps.size;
   byId("treeOpen").disabled = !focus && !selectedParts.length;
   byId("status").innerHTML = nSelected
-    ? `${selectedParts.length} particle(s)${state.selectedTracks.size ? ` and ${state.selectedTracks.size} fake track(s)` : ""} drawn${state.selected.size >= MAX_DRAWN ? ` (limit ${MAX_DRAWN})` : ""}. ● primary hits · × secondary hits · ○ hit no track picked up · □ track measurement · ⊠ measurement from another particle · thick line: smoothed track · dashed: ideal helix · ★ production vertex (◆ in 3D).`
+    ? `${selectedParts.length} particle(s)${state.selectedTracks.size ? `, ${state.selectedTracks.size} track(s)` : ""}${state.selectedSeeds.size ? `, ${state.selectedSeeds.size} seed(s)` : ""}${state.selectedProps.size ? `, ${state.selectedProps.size} CKF propagation(s)` : ""} drawn${state.selected.size >= MAX_DRAWN ? ` (limit ${MAX_DRAWN})` : ""}. ● primary hits · × secondary hits${SIM_ONLY ? "" : " · ○ hit no track picked up · □ track measurement · ⊠ measurement from another particle · thick line: smoothed track"}${DATA.hasSeeds ? " · dotted with △: seed (▽ space point from another particle or noise)" : ""}${state.selectedProps.size ? " · green/red line: CKF propagation succeeded/failed (◆ ticked step)" : ""} · ★ production vertex (◆ in 3D)${byId("showHitMomenta").checked ? " · → momentum entering the sensor" : ""}.`
     : "Select events or particles in the browser on the left.";
   renderDetails(focus);
 }
@@ -863,20 +1286,33 @@ function renderDetails(part) {
   if (!part) { byId("details").innerHTML = ""; return; }
   const r = Math.hypot(part.vx, part.vy);
   const ended = part.atRest ? "ended at p = 0" : `lost ${fmtMomentum(part.eloss)}`;
-  const helixText = part.q && part.pt > 0 ? ` · helix R ${helix(part, 0.25).radius.toFixed(0)} mm` : "";
+  // transverse bending radius at production, R = pT / (0.3 |q| B)
+  const helixText = part.q && part.pt > 0 ? ` · R ${((part.pt / (KAPPA * Math.abs(part.q) * DATA.bField)) * 1000).toFixed(0)} mm at production` : "";
   const status = part.sel
     ? `${DATA.hasSeedStatus ? (part.seed && part.seed.length ? `<span class="ok">seeded in iteration ${part.seed.join(", ")}</span>` : `<span class="bad">not seeded</span>`) + " · " : ""}${part.reco ? `<span class="ok">reconstructed</span>` : `<span class="bad">not reconstructed</span>`}`
     : `<span class="note">not in the efficiency selection</span>`;
   const nFound = part.hits.found.reduce((sum, flag) => sum + flag, 0);
   const nForeign = part.tracks.reduce((sum, track) => sum + (track.own ? track.own.filter((flag) => !flag).length : 0), 0);
-  const foundText = part.tracks.length ? ` · tracks found ${nFound} of ${part.nHits} hits${nForeign ? `, plus ${nForeign} measurement(s) from other particles` : ""}` : "";
+  const foundText = !SIM_ONLY && part.tracks.length ? ` · tracks found ${nFound} of ${part.nHits} hits${nForeign ? `, plus ${nForeign} measurement(s) from other particles` : ""}` : "";
+  let removedText = "";
+  if (part.hits.it) {
+    const perIteration = ITERATIONS.map((iteration) => part.hits.it.filter((value) => value === iteration).length);
+    const nLeft = part.hits.it.filter((value) => value < 0).length;
+    removedText = `<div>hits removed per iteration: ${ITERATIONS.map((iteration, i) => `it ${iteration}: ${perIteration[i]}`).join(" · ")} · left after all: ${nLeft}</div>`;
+  }
   const tracks = part.tracks.length
     ? part.tracks.map((track) => `track ${track.nr} (${TRACK_CLASSES[track.cls]}, ${track.nMeas} meas${track.pt ? `, pT ${fmtMomentum(track.pt)}` : ""})`).join(", ")
     : "no track with this particle as majority";
+  // seeds sorted by iteration, then best quality first
+  const seeds = part.seeds;
+  const seedsText = DATA.hasSeeds
+    ? `<div>${seeds.length ? `${seeds.length} seed(s) with ≥ 2 of 3 space points from it: ${seeds.map((seed) =>
+        `it ${seed.it}${seed.belowTof ? " ↓TOF" : ""} (${seed.belowTof ? (seed.partner >= 0 ? "paired" : "unpaired") : `q ${seed.q}`}, ${seedOwn(seed)}${seed.pt !== undefined ? `, pT ${fmtMomentum(seed.pt)}` : ""})`).join(", ")}` : "no seed with ≥ 2 of 3 space points from it"}</div>`
+    : "";
   byId("details").innerHTML = `<div class="title">${escapeHtml(particleName(part.pdg))} · ev ${part.ev.id} · barcode ${part.k} · gen ${part.g} (${escapeHtml(PROCESS_NAMES[part.proc] ?? part.proc)})</div>
     <div>pT ${fmtMomentum(part.pt)} · η ${part.eta.toFixed(3)} · φ ${part.phi.toFixed(3)} · |p| ${fmtMomentum(part.p)} · T_kin ${fmtMomentum(part.tkin)} · ${ended}${helixText}</div>
     <div>vertex r ${r.toFixed(2)} mm · z ${part.vz.toFixed(2)} mm · t ${part.vt.toFixed(3)} ns · ${part.nHits} hits${foundText}</div>
-    <div>${status} · ${tracks}</div>`;
+    ${SIM_ONLY ? "" : `<div>${status} · ${tracks}</div>`}${removedText}${seedsText}`;
 }
 
 // ---------- decay tree (family of the focused particle) ----------
