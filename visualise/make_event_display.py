@@ -14,6 +14,9 @@ Reads (all optional except hits.root and particles_simulation.root):
     measurements_with_noise.root               the particles behind each measurement, to assign the seeds
     iter_N/trackstates*ambi_tracks_writer.root the measurements iteration N removes (cfg.tracking.writeAmbiTrackStates),
                                                for the "after iteration" filter
+    trackstates/tracksummary_joined-tracks.root, track_joins.root
+                                               tracks joined from several ambi-merged tracks (looper segments),
+                                               with the tracks each was joined from (track_joins.root "chains")
     trajectories.root                          the Geant4 path of each particle (cfg.detSim.writeTrajectories,
                                                RootSimParticleTrajectoryWriter)
     iter_N/propagation_steps_*ckf_tracks_*_steps.root   the CKF propagation steps (first/second pass, succeeded
@@ -1227,6 +1230,35 @@ def build_events(particles_by_event, hits, tracks, seed_matching, reco_matching,
     return events
 
 
+def add_joined_tracks(run_dir, tracks, event_ids=None):
+    """The joined tracks (trackstates/tracksummary_joined-tracks.root), added to the tracks of their
+    event with "joined": 1 and, from track_joins.root's "chains" tree, the numbers of the merged
+    tracks each was fitted from ("from") and the fit's chi2 / ndf. Nothing without the files."""
+    states_path = run_dir / "trackstates_joined-tracks.root"
+    if not has_tree(states_path, "trackstates"):
+        return
+    joined = read_tracks(states_path, run_dir / "tracksummary_joined-tracks.root", event_ids)
+    chains = {}
+    chains_path = run_dir / "track_joins.root"
+    if has_tree(chains_path, "chains"):
+        data = filter_events(ROOT.RDataFrame("chains", str(chains_path)), "event_nr", event_ids).AsNumpy(
+            ["event_nr", "track_nr", "fit_ok", "fitted_track_nr", "chi2_fit", "ndf_fit"])
+        for i_chain in range(len(data["event_nr"])):
+            if not data["fit_ok"][i_chain]:
+                continue
+            chains[(int(data["event_nr"][i_chain]), int(data["fitted_track_nr"][i_chain]))] = {
+                "from": [int(track_nr) for track_nr in data["track_nr"][i_chain]],
+                "chi2": round(float(data["chi2_fit"][i_chain]), 1), "ndf": int(data["ndf_fit"][i_chain])}
+    n_joined = 0
+    for event_id, event_tracks in joined.items():
+        for track in event_tracks:
+            track["joined"] = 1
+            track.update(chains.get((event_id, track["nr"]), {}))
+            tracks.setdefault(event_id, []).append(track)
+            n_joined += 1
+    print(f"{n_joined} joined tracks", file=sys.stderr)
+
+
 def read_reconstruction(run_dir, sim_dir=None, event_ids=None, max_steps=20000):
     """Tracks, seed matching, reconstruction matching and seeds of a run; each is empty/None when missing.
 
@@ -1236,6 +1268,8 @@ def read_reconstruction(run_dir, sim_dir=None, event_ids=None, max_steps=20000):
     trackstates_path = run_dir / "trackstates_ambi-tracks-merged.root"
     tracks = read_tracks(trackstates_path, run_dir / "tracksummary_ambi-tracks-merged.root", event_ids) \
         if has_tree(trackstates_path, "trackstates") else {}
+    tracks = dict(tracks)
+    add_joined_tracks(run_dir, tracks, event_ids)
     seed_matching = read_seed_matching(run_dir, event_ids)
     if seed_matching is None:
         print("no iter_*/*performance_seeding.root with matchingdetails: seeding status not shown", file=sys.stderr)

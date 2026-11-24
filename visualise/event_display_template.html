@@ -315,7 +315,7 @@ for (const ev of events) {
   for (const seed of [...ev.parts.flatMap((part) => part.seeds), ...ev.nseeds]) seed.props = (seed.ref && ev.props[seed.ref]) || [];
   ev.fakes = [];
   for (const track of ev.tracks) {
-    track.ev = ev; track.id = `${ev.id}#${track.nr}`; trackById.set(track.id, track);
+    track.ev = ev; track.id = `${ev.id}#${track.joined ? "j" : ""}${track.nr}`; trackById.set(track.id, track);
     const owner = track.key ? ev.byKey.get(track.key) : null;
     track.owner = owner || null;
     // under its majority particle whatever the classification (a fake shows why the particle is not matched)
@@ -624,8 +624,8 @@ function trackRow(track, depth = "depth2") {
   const swatch = isOn ? `background:${trackColor(track)}` : "background:transparent";
   return `<div class="row ${depth}" data-track="${track.id}">
     <input type="checkbox" data-check="track" ${isOn ? "checked" : ""}><span class="swatch" style="${swatch}"></span>
-    <span class="name">track ${track.nr}</span>
-    <span class="meta"><span class="${TRACK_CLASS_STYLE[track.cls] || ""}">${TRACK_CLASSES[track.cls]}</span> · ${track.nMeas} meas${majority}${foreign}${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}${owner}</span></div>`;
+    <span class="name">${trackName(track)}</span>
+    <span class="meta"><span class="${TRACK_CLASS_STYLE[track.cls] || ""}">${TRACK_CLASSES[track.cls]}</span> · ${track.nMeas} meas${majority}${foreign}${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}${joinedText(track)}${owner}</span></div>`;
 }
 function folderRows(node, label, items, rowOf, extra = "") {
   if (!items.length) return "";
@@ -977,7 +977,11 @@ function momentumText(hits, i_hit) {
     + (after ? `<br>p⃗ out = ${vectorText(after)} · |p| ${fmtMomentum(Math.hypot(...after))}` : "");
 }
 function partLabel(part) { return `ev ${part.ev.id} · ${particleName(part.pdg)} ${part.k} · pT ${fmtMomentum(part.pt)}`; }
-function trackLabel(track) { return `ev ${track.ev.id} track ${track.nr} (${TRACK_CLASSES[track.cls]}) · ${track.nMeas} meas${track.nMaj != null ? `, ${track.nMaj} from majority` : ""}${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}`; }
+// a joined track (several merged tracks of a looper fitted together) names the tracks it is made of
+const HAS_JOINED = events.some((ev) => ev.tracks.some((track) => track.joined));
+const trackName = (track) => (track.joined ? `Joined Track #${track.nr}` : `track ${track.nr}`);
+const joinedText = (track) => (track.joined && track.from ? ` · from tracks ${track.from.map((nr) => `#${nr}`).join(", ")} · fit χ²/ndf ${track.chi2}/${track.ndf}` : "");
+function trackLabel(track) { return `ev ${track.ev.id} ${trackName(track)} (${TRACK_CLASSES[track.cls]}) · ${track.nMeas} meas${track.nMaj != null ? `, ${track.nMaj} from majority` : ""}${track.pt ? ` · pT ${fmtMomentum(track.pt)}` : ""}${joinedText(track)}`; }
 
 function draw() {
   const xy = [], rz = [], xyz = [];
@@ -1009,7 +1013,7 @@ function draw() {
   const showArrows = byId("showHitMomenta").checked;
   const measurements = pointBatch(), foreignMeasurements = pointBatch(), vertices = pointBatch();
   const markMissed = !SIM_ONLY && byId("showMissed").checked;
-  const smoothed = lineBatches(), seedLines = lineBatches(), trajectoryLines = lineBatches();
+  const smoothed = lineBatches(), joinedLines = lineBatches(), seedLines = lineBatches(), trajectoryLines = lineBatches();
   const showTrajectories = DATA.hasTrajectories && byId("showTrajectories").checked;
   const seedPoints = pointBatch(), foreignSeedPoints = pointBatch();
   const familiesByEvent = new Map();
@@ -1026,7 +1030,7 @@ function draw() {
   };
   const drawTrack = (track, color) => {
     const label = trackLabel(track);
-    if (byId("showSmoothed").checked && track.smt.x.length) smoothed.add(color, track.smt.x, track.smt.y, track.smt.z, label);
+    if (byId("showSmoothed").checked && track.smt.x.length) (track.joined ? joinedLines : smoothed).add(color, track.smt.x, track.smt.y, track.smt.z, label);
     if (byId("showMeasurements").checked) {
       for (let i_meas = 0; i_meas < track.meas.x.length; i_meas++) {
         const [x, y, z] = [track.meas.x[i_meas], track.meas.y[i_meas], track.meas.z[i_meas]];
@@ -1059,7 +1063,7 @@ function draw() {
         if (p > 0) arrows.push({ x, y, z, ux: px / p, uy: py / p, uz: pz / p, color,
                                  text: `${label}<br>hit ${i_hit} · layer ${hits.layer[i_hit]}<br>${momentumText(hits, i_hit)}` });
       }
-      batch.text.push(`${label}<br>hit ${i_hit} of ${hits.x.length} (time order) · layer ${hits.layer[i_hit]}${SIM_ONLY ? "" : isFound ? " · on its track" : " · <b>not on a track</b>"}${removedText}<br>r ${r.toFixed(1)} mm · t ${hits.t[i_hit].toFixed(3)} ns · |p| ${fmtMomentum(hits.p[i_hit])}`);
+      batch.text.push(`${label}<br>hit ${i_hit} of ${hits.x.length} (time order) · layer ${hits.layer[i_hit]}${SIM_ONLY ? "" : isFound ? " · on its track" : " · <b>not on a track</b>"}${removedText}<br>r ${r.toFixed(1)} mm · t ${hits.t[i_hit].toFixed(3)} ns${hits.px ? ` · pT ${fmtMomentum(Math.hypot(hits.px[i_hit], hits.py[i_hit]))}` : ""} · |p| ${fmtMomentum(hits.p[i_hit])}`);
       extend(x, y, z);
     }
     if (showTrajectories && part.traj && part.traj.x.length > 1) {
@@ -1141,6 +1145,7 @@ function draw() {
     }
   };
   lineTraces(trajectoryLines, 1.5, "dash", 0.8);
+  lineTraces(joinedLines, 7, "solid", 0.3);
   lineTraces(smoothed, 2.5, "solid", 0.6);
   lineTraces(seedLines, 1.5, "dot", 0.9);
   for (const { color, line } of propTraces) {
@@ -1288,7 +1293,7 @@ function draw() {
   const nSelected = selectedParts.length + state.selectedTracks.size + state.selectedSeeds.size + state.selectedProps.size;
   byId("treeOpen").disabled = !focus && !selectedParts.length;
   byId("status").innerHTML = nSelected
-    ? `${selectedParts.length} particle(s)${state.selectedTracks.size ? `, ${state.selectedTracks.size} track(s)` : ""}${state.selectedSeeds.size ? `, ${state.selectedSeeds.size} seed(s)` : ""}${state.selectedProps.size ? `, ${state.selectedProps.size} CKF propagation(s)` : ""} drawn${state.selected.size >= MAX_DRAWN ? ` (limit ${MAX_DRAWN})` : ""}. ● primary hits · × secondary hits${SIM_ONLY ? "" : " · ○ hit no track picked up · □ track measurement · ⊠ measurement from another particle · thick line: smoothed track"}${showTrajectories ? " · dashed: Geant4 trajectory" : ""}${DATA.hasSeeds ? " · dotted with △: seed (▽ space point from another particle or noise)" : ""}${state.selectedProps.size ? " · green/red line: CKF propagation succeeded/failed (◆ ticked step)" : ""}${byId("showVertices").checked ? " · ★ production vertex (◆ in 3D)" : ""}${byId("showHitMomenta").checked ? " · → momentum entering the sensor" : ""}.`
+    ? `${selectedParts.length} particle(s)${state.selectedTracks.size ? `, ${state.selectedTracks.size} track(s)` : ""}${state.selectedSeeds.size ? `, ${state.selectedSeeds.size} seed(s)` : ""}${state.selectedProps.size ? `, ${state.selectedProps.size} CKF propagation(s)` : ""} drawn${state.selected.size >= MAX_DRAWN ? ` (limit ${MAX_DRAWN})` : ""}. ● primary hits · × secondary hits${SIM_ONLY ? "" : " · ○ hit no track picked up · □ track measurement · ⊠ measurement from another particle · thick line: smoothed track" + (HAS_JOINED ? " (wide band: joined track)" : "")}${showTrajectories ? " · dashed: Geant4 trajectory" : ""}${DATA.hasSeeds ? " · dotted with △: seed (▽ space point from another particle or noise)" : ""}${state.selectedProps.size ? " · green/red line: CKF propagation succeeded/failed (◆ ticked step)" : ""}${byId("showVertices").checked ? " · ★ production vertex (◆ in 3D)" : ""}${byId("showHitMomenta").checked ? " · → momentum entering the sensor" : ""}.`
     : "Select events or particles in the browser on the left.";
   renderDetails(focus);
 }
@@ -1312,7 +1317,7 @@ function renderDetails(part) {
     removedText = `<div>hits removed per iteration: ${ITERATIONS.map((iteration, i) => `it ${iteration}: ${perIteration[i]}`).join(" · ")} · left after all: ${nLeft}</div>`;
   }
   const tracks = part.tracks.length
-    ? part.tracks.map((track) => `track ${track.nr} (${TRACK_CLASSES[track.cls]}, ${track.nMeas} meas${track.pt ? `, pT ${fmtMomentum(track.pt)}` : ""})`).join(", ")
+    ? part.tracks.map((track) => `${trackName(track)} (${TRACK_CLASSES[track.cls]}, ${track.nMeas} meas${track.pt ? `, pT ${fmtMomentum(track.pt)}` : ""})`).join(", ")
     : "no track with this particle as majority";
   // seeds sorted by iteration, then best quality first
   const seeds = part.seeds;
